@@ -244,22 +244,12 @@ pub(super) async fn ensure_listener_task_running(
         if thread_state.listener_matches(&conversation) {
             return Ok(());
         }
-        let (listener_command_rx, listener_generation) = thread_state.set_listener(
+        thread_state.set_listener(
             cancel_tx,
             &conversation,
             watch_registration,
             thread_settings_baseline,
-        );
-        let Some(listener_command_tx) = thread_state.listener_command_tx() else {
-            tracing::warn!(
-                "thread listener command sender missing immediately after listener registration"
-            );
-            return Ok(());
-        };
-        listener_task_context
-            .thread_state_manager
-            .register_listener_command_tx(conversation_id, listener_command_tx);
-        (listener_command_rx, listener_generation)
+        )
     };
     let ListenerTaskContext {
         outgoing,
@@ -388,7 +378,6 @@ pub(super) async fn ensure_listener_task_running(
 
         let mut thread_state = thread_state.lock().await;
         if thread_state.listener_generation == listener_generation {
-            thread_state_manager.unregister_listener_command_tx(conversation_id);
             thread_state.clear_listener();
         }
     });
@@ -482,12 +471,12 @@ pub(super) async fn handle_thread_listener_command(
             )
             .await;
         }
-        ThreadListenerCommand::EmitThreadGoalUpdated { turn_id, goal } => {
+        ThreadListenerCommand::EmitThreadGoalUpdated { goal } => {
             outgoing
                 .send_server_notification(ServerNotification::ThreadGoalUpdated(
                     ThreadGoalUpdatedNotification {
                         thread_id: conversation_id.to_string(),
-                        turn_id,
+                        turn_id: None,
                         goal,
                     },
                 ))
@@ -627,6 +616,12 @@ pub(super) async fn handle_pending_thread_resume_request(
         }
     }
 
+    if pending.emit_thread_goal_update
+        && let Err(err) = conversation.apply_goal_resume_runtime_effects().await
+    {
+        tracing::warn!("failed to apply goal resume runtime effects: {err}");
+    }
+
     let ThreadConfigSnapshot {
         model,
         model_provider_id,
@@ -696,9 +691,11 @@ pub(super) async fn handle_pending_thread_resume_request(
         .replay_requests_to_connection_for_thread(connection_id, conversation_id)
         .await;
     // App-server owns resume response and snapshot ordering, so wait until
-    // replay completes before letting extensions react to the idle thread.
-    if pending.emit_thread_goal_update {
-        conversation.emit_thread_idle_lifecycle_if_idle().await;
+    // replay completes before letting core start goal continuation.
+    if pending.emit_thread_goal_update
+        && let Err(err) = conversation.continue_active_goal_if_idle().await
+    {
+        tracing::warn!("failed to continue active goal after running-thread resume: {err}");
     }
 }
 

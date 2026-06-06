@@ -67,7 +67,7 @@ pub(crate) fn thread_to_transcript_cells(
                 }));
             }
             ThreadItem::AgentMessage { text, .. } => {
-                let parsed = parse_assistant_markdown(text, cwd);
+                let parsed = parse_assistant_markdown(text);
                 if !parsed.visible_markdown.trim().is_empty() {
                     cells.push(Arc::new(AgentMarkdownCell::new(
                         parsed.visible_markdown,

@@ -208,8 +208,10 @@ async fn load_config_normalizes_relative_cwd_override() -> std::io::Result<()> {
 #[tokio::test]
 async fn load_config_loads_global_agents_instructions() -> std::io::Result<()> {
     let codex_home = tempdir()?;
-    let global_agents_path = codex_home.abs().join(DEFAULT_AGENTS_MD_FILENAME);
-    std::fs::write(&global_agents_path, "\n  global instructions  \n")?;
+    std::fs::write(
+        codex_home.path().join(DEFAULT_AGENTS_MD_FILENAME),
+        "\n  global instructions  \n",
+    )?;
 
     let mut config = Config::load_from_base_config_with_overrides(
         ConfigToml::default(),
@@ -219,14 +221,9 @@ async fn load_config_loads_global_agents_instructions() -> std::io::Result<()> {
     .await?;
     let _ = config.features.enable(Feature::MemoryTool);
 
-    let user_instructions = config
-        .user_instructions
-        .as_ref()
-        .expect("global instructions expected");
-    assert_eq!(user_instructions.text(), "global instructions");
     assert_eq!(
-        user_instructions.sources().collect::<Vec<_>>(),
-        vec![&global_agents_path]
+        config.user_instructions.as_deref(),
+        Some("global instructions")
     );
     Ok(())
 }
@@ -238,7 +235,7 @@ async fn load_config_prefers_global_agents_override_instructions() -> std::io::R
         codex_home.path().join(DEFAULT_AGENTS_MD_FILENAME),
         "global instructions",
     )?;
-    let global_agents_override_path = codex_home.abs().join(LOCAL_AGENTS_MD_FILENAME);
+    let global_agents_override_path = codex_home.path().join(LOCAL_AGENTS_MD_FILENAME);
     std::fs::write(&global_agents_override_path, "local override instructions")?;
 
     let config = Config::load_from_base_config_with_overrides(
@@ -248,14 +245,9 @@ async fn load_config_prefers_global_agents_override_instructions() -> std::io::R
     )
     .await?;
 
-    let user_instructions = config
-        .user_instructions
-        .as_ref()
-        .expect("global override instructions expected");
-    assert_eq!(user_instructions.text(), "local override instructions");
     assert_eq!(
-        user_instructions.sources().collect::<Vec<_>>(),
-        vec![&global_agents_override_path]
+        config.user_instructions.as_deref(),
+        Some("local override instructions")
     );
     Ok(())
 }
@@ -481,32 +473,6 @@ async fn load_config_resolves_experimental_request_user_input_enabled() -> std::
     .await?;
 
     assert!(!config.experimental_request_user_input_enabled);
-    Ok(())
-}
-
-#[tokio::test]
-async fn load_config_resolves_code_mode_config() -> std::io::Result<()> {
-    let codex_home = tempdir()?;
-    let config_toml: ConfigToml = toml::from_str(
-        r#"
-[features.code_mode]
-enabled = true
-excluded_tool_namespaces = ["mcp__codex_apps", "multi_agent_v1"]
-"#,
-    )
-    .expect("TOML deserialization should succeed");
-    let config = Config::load_from_base_config_with_overrides(
-        config_toml,
-        ConfigOverrides::default(),
-        codex_home.abs(),
-    )
-    .await?;
-
-    assert_eq!(
-        config.code_mode.excluded_tool_namespaces,
-        vec!["mcp__codex_apps".to_string(), "multi_agent_v1".to_string()]
-    );
-    assert!(config.features.enabled(Feature::CodeMode));
     Ok(())
 }
 
@@ -8351,8 +8317,7 @@ async fn test_requirements_web_search_mode_allowlist_does_not_warn_when_unset() 
         allowed_approval_policies: None,
         allowed_approvals_reviewers: None,
         allowed_sandbox_modes: None,
-        allowed_permission_profiles: None,
-        default_permissions: None,
+        allowed_permissions: None,
         remote_sandbox_config: None,
         allowed_web_search_modes: Some(vec![codex_config::WebSearchModeRequirement::Cached]),
         allow_managed_hooks_only: None,
@@ -9871,7 +9836,7 @@ non_code_mode_only = true
     assert_eq!(
         (
             config.agent_max_threads,
-            config.effective_agent_max_threads(MultiAgentVersion::V2)
+            config.effective_agent_max_threads(MultiAgentVersion::V2)?
         ),
         (None, Some(4))
     );
@@ -9921,7 +9886,7 @@ enabled = true
     assert_eq!(
         (
             config.agent_max_threads,
-            config.effective_agent_max_threads(MultiAgentVersion::V2)
+            config.effective_agent_max_threads(MultiAgentVersion::V2)?
         ),
         (None, Some(3))
     );
@@ -9980,7 +9945,7 @@ subagent_usage_hint_text = ""
 }
 
 #[tokio::test]
-async fn multi_agent_v2_feature_rejects_agents_max_threads() -> std::io::Result<()> {
+async fn multi_agent_v2_rejects_agents_max_threads() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     std::fs::write(
         codex_home.path().join(CONFIG_TOML_FILE),
@@ -9998,45 +9963,13 @@ max_threads = 3
         .build()
         .await?;
     let err = config
-        .validate_multi_agent_v2_config()
+        .effective_agent_max_threads(MultiAgentVersion::V2)
         .expect_err("agents.max_threads should conflict with multi_agent_v2");
 
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     assert_eq!(
         err.to_string(),
-        "agents.max_threads cannot be set when features.multi_agent_v2 is enabled"
-    );
-    assert_eq!(
-        config.effective_agent_max_threads(MultiAgentVersion::V2),
-        Some(3)
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn catalog_v2_allows_agents_max_threads_when_feature_disabled() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    std::fs::write(
-        codex_home.path().join(CONFIG_TOML_FILE),
-        r#"[features.multi_agent_v2]
-enabled = false
-
-[agents]
-max_threads = 3
-"#,
-    )?;
-
-    let config = ConfigBuilder::without_managed_config_for_tests()
-        .codex_home(codex_home.path().to_path_buf())
-        .fallback_cwd(Some(codex_home.path().to_path_buf()))
-        .build()
-        .await?;
-
-    config.validate_multi_agent_v2_config()?;
-    assert_eq!(
-        config.effective_agent_max_threads(MultiAgentVersion::V2),
-        Some(3)
+        "agents.max_threads cannot be set when the multi-agent runtime is v2"
     );
 
     Ok(())
@@ -10298,7 +10231,7 @@ max_concurrent_threads_per_session = 1
     assert_eq!(
         (
             config.agent_max_threads,
-            config.effective_agent_max_threads(MultiAgentVersion::V2)
+            config.effective_agent_max_threads(MultiAgentVersion::V2)?
         ),
         (None, Some(0))
     );

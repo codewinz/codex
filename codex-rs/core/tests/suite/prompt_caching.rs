@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used)]
 
-use codex_core::LoadedAgentsMd;
 use codex_core::shell::default_user_shell;
 use codex_features::Feature;
 use codex_prompts::APPLY_PATCH_TOOL_INSTRUCTIONS;
@@ -123,9 +122,7 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
         ..
     } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config.model = Some("gpt-5.2".to_string());
             // Keep tool expectations stable when the default web_search mode changes.
             config
@@ -188,6 +185,9 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
     };
     expected_tools_names.extend([
         "update_plan",
+        "get_goal",
+        "create_goal",
+        "update_goal",
         "request_user_input",
         "apply_patch",
         "view_image",
@@ -237,9 +237,7 @@ async fn gpt_5_tools_without_apply_patch_append_apply_patch_instructions() -> an
 
     let TestCodex { codex, .. } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config
                 .features
                 .enable(Feature::CollaborationModes)
@@ -321,9 +319,7 @@ async fn prefixes_context_and_instructions_once_and_consistently_across_requests
 
     let TestCodex { codex, config, .. } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config
                 .features
                 .enable(Feature::CollaborationModes)
@@ -421,9 +417,7 @@ async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> an
 
     let TestCodex { codex, config, .. } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config
                 .features
                 .enable(Feature::CollaborationModes)
@@ -715,9 +709,7 @@ async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Res
 
     let TestCodex { codex, .. } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config
                 .features
                 .enable(Feature::CollaborationModes)
@@ -764,7 +756,7 @@ async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Res
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(new_cwd.abs()),
+                cwd: Some(new_cwd.path().to_path_buf()),
                 approval_policy: Some(AskForApproval::Never),
                 sandbox_policy: Some(sandbox_policy),
                 permission_profile,
@@ -852,9 +844,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
         ..
     } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config
                 .features
                 .enable(Feature::CollaborationModes)
@@ -867,7 +857,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
     let default_approval_policy = config.permissions.approval_policy.value();
     let default_sandbox_policy = &config.legacy_sandbox_policy();
     let default_model = session_configured.model;
-    let default_effort = config.model_reasoning_effort.clone();
+    let default_effort = config.model_reasoning_effort;
     let default_summary = config.model_reasoning_summary;
 
     codex
@@ -881,7 +871,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(default_cwd.clone()),
+                cwd: Some(default_cwd.to_path_buf()),
                 approval_policy: Some(default_approval_policy),
                 sandbox_policy: Some(default_sandbox_policy.clone()),
                 summary: Some(default_summary.unwrap_or(ReasoningSummary::Auto)),
@@ -889,7 +879,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
                     mode: codex_protocol::config_types::ModeKind::Default,
                     settings: codex_protocol::config_types::Settings {
                         model: default_model.clone(),
-                        reasoning_effort: default_effort.clone(),
+                        reasoning_effort: default_effort,
                         developer_instructions: None,
                     },
                 }),
@@ -910,7 +900,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(default_cwd.clone()),
+                cwd: Some(default_cwd.to_path_buf()),
                 approval_policy: Some(default_approval_policy),
                 sandbox_policy: Some(default_sandbox_policy.clone()),
                 summary: Some(default_summary.unwrap_or(ReasoningSummary::Auto)),
@@ -995,9 +985,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
         ..
     } = test_codex()
         .with_config(|config| {
-            config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-                "be consistent and helpful",
-            ));
+            config.user_instructions = Some("be consistent and helpful".to_string());
             config
                 .features
                 .enable(Feature::CollaborationModes)
@@ -1010,7 +998,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
     let default_approval_policy = config.permissions.approval_policy.value();
     let default_sandbox_policy = &config.legacy_sandbox_policy();
     let default_model = session_configured.model;
-    let default_effort = config.model_reasoning_effort.clone();
+    let default_effort = config.model_reasoning_effort;
     let default_summary = config.model_reasoning_summary;
 
     codex
@@ -1024,7 +1012,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(default_cwd.clone()),
+                cwd: Some(default_cwd.to_path_buf()),
                 approval_policy: Some(default_approval_policy),
                 sandbox_policy: Some(default_sandbox_policy.clone()),
                 summary: Some(default_summary.unwrap_or(ReasoningSummary::Auto)),
@@ -1055,7 +1043,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(default_cwd.clone()),
+                cwd: Some(default_cwd.to_path_buf()),
                 approval_policy: Some(AskForApproval::Never),
                 sandbox_policy: Some(sandbox_policy),
                 permission_profile,

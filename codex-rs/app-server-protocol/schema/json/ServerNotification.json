@@ -525,13 +525,6 @@
             "agentIdentity"
           ],
           "type": "string"
-        },
-        {
-          "description": "Programmatic Codex auth backed by a personal access token.",
-          "enum": [
-            "personalAccessToken"
-          ],
-          "type": "string"
         }
       ]
     },
@@ -2784,8 +2777,15 @@
       "type": "string"
     },
     "ReasoningEffort": {
-      "description": "A non-empty reasoning effort value advertised by the model.",
-      "minLength": 1,
+      "description": "See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning",
+      "enum": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "type": "string"
     },
     "ReasoningSummary": {
@@ -4916,23 +4916,6 @@
         }
       ]
     },
-    "TurnModerationMetadataNotification": {
-      "properties": {
-        "metadata": true,
-        "threadId": {
-          "type": "string"
-        },
-        "turnId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "metadata",
-        "threadId",
-        "turnId"
-      ],
-      "type": "object"
-    },
     "TurnPlanStep": {
       "properties": {
         "status": {
@@ -6270,26 +6253,6 @@
         "params"
       ],
       "title": "Model/verificationNotification",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "method": {
-          "enum": [
-            "turn/moderationMetadata"
-          ],
-          "title": "Turn/moderationMetadataNotificationMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/TurnModerationMetadataNotification"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "title": "Turn/moderationMetadataNotification",
       "type": "object"
     },
     {

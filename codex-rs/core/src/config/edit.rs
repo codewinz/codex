@@ -225,7 +225,7 @@ impl ConfigDocument {
                 );
                 mutated |= self.write_optional_value(
                     &["model_reasoning_effort"],
-                    effort.as_ref().map(|effort| value(effort.to_string())),
+                    effort.map(|effort| value(effort.to_string())),
                 );
                 mutated
             }),

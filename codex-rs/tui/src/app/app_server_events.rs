@@ -87,9 +87,10 @@ impl App {
                         notification.plan_type,
                     ),
                     notification.plan_type,
-                    notification
-                        .auth_mode
-                        .is_some_and(AuthMode::has_chatgpt_account),
+                    matches!(
+                        notification.auth_mode,
+                        Some(AuthMode::Chatgpt) | Some(AuthMode::ChatgptAuthTokens)
+                    ),
                 );
                 return;
             }

@@ -19,7 +19,6 @@ async fn file_storage_load_returns_auth_dot_json() -> anyhow::Result<()> {
         tokens: None,
         last_refresh: Some(Utc::now()),
         agent_identity: None,
-        personal_access_token: None,
     };
 
     storage
@@ -41,7 +40,6 @@ async fn file_storage_save_persists_auth_dot_json() -> anyhow::Result<()> {
         tokens: None,
         last_refresh: Some(Utc::now()),
         agent_identity: None,
-        personal_access_token: None,
     };
 
     let file = get_auth_file(codex_home.path());
@@ -75,27 +73,6 @@ async fn file_storage_round_trips_agent_identity_auth() -> anyhow::Result<()> {
         tokens: None,
         last_refresh: None,
         agent_identity: Some(agent_identity),
-        personal_access_token: None,
-    };
-
-    storage.save(&auth_dot_json)?;
-
-    let loaded = storage.load()?;
-    assert_eq!(Some(auth_dot_json), loaded);
-    Ok(())
-}
-
-#[tokio::test]
-async fn file_storage_round_trips_personal_access_token_auth() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    let storage = FileAuthStorage::new(codex_home.path().to_path_buf());
-    let auth_dot_json = AuthDotJson {
-        auth_mode: Some(AuthMode::PersonalAccessToken),
-        openai_api_key: None,
-        tokens: None,
-        last_refresh: None,
-        agent_identity: None,
-        personal_access_token: Some("at-example".to_string()),
     };
 
     storage.save(&auth_dot_json)?;
@@ -145,7 +122,6 @@ fn file_storage_delete_removes_auth_file() -> anyhow::Result<()> {
         tokens: None,
         last_refresh: None,
         agent_identity: None,
-        personal_access_token: None,
     };
     let storage = create_auth_storage(dir.path().to_path_buf(), AuthCredentialsStoreMode::File);
     storage.save(&auth_dot_json)?;
@@ -170,7 +146,6 @@ fn ephemeral_storage_save_load_delete_is_in_memory_only() -> anyhow::Result<()> 
         tokens: None,
         last_refresh: Some(Utc::now()),
         agent_identity: None,
-        personal_access_token: None,
     };
 
     storage.save(&auth_dot_json)?;
@@ -270,7 +245,6 @@ fn auth_with_prefix(prefix: &str) -> AuthDotJson {
         }),
         last_refresh: None,
         agent_identity: None,
-        personal_access_token: None,
     }
 }
 
@@ -296,7 +270,6 @@ fn keyring_auth_storage_load_returns_deserialized_auth() -> anyhow::Result<()> {
         tokens: None,
         last_refresh: None,
         agent_identity: None,
-        personal_access_token: None,
     };
     seed_keyring_with_auth(
         &mock_keyring,
@@ -340,7 +313,6 @@ fn keyring_auth_storage_save_persists_and_removes_fallback_file() -> anyhow::Res
         }),
         last_refresh: Some(Utc::now()),
         agent_identity: None,
-        personal_access_token: None,
     };
 
     storage.save(&auth)?;

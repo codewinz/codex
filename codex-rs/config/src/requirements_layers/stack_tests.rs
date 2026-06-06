@@ -62,11 +62,6 @@ fn top_level_values_use_toml_priority() {
             r#"
 allowed_approval_policies = ["on-request"]
 allowed_sandbox_modes = ["workspace-write"]
-default_permissions = ":workspace"
-
-[allowed_permission_profiles]
-":read-only" = true
-":workspace" = true
 "#,
         ),
         layer(
@@ -75,11 +70,6 @@ default_permissions = ":workspace"
             r#"
 allowed_approval_policies = ["never"]
 allowed_sandbox_modes = ["read-only"]
-default_permissions = ":read-only"
-
-[allowed_permission_profiles]
-":danger-full-access" = false
-":workspace" = false
 "#,
         ),
     ])
@@ -92,12 +82,6 @@ default_permissions = ":read-only"
             r#"
 allowed_approval_policies = ["never"]
 allowed_sandbox_modes = ["read-only"]
-default_permissions = ":read-only"
-
-[allowed_permission_profiles]
-":danger-full-access" = false
-":read-only" = true
-":workspace" = false
 "#
         )
     );

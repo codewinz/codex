@@ -88,10 +88,11 @@ pub struct TurnStartParams {
     #[ts(optional = nullable)]
     pub cwd: Option<PathBuf>,
     /// Replace the thread's runtime workspace roots for this turn and
-    /// subsequent turns. Paths must be absolute.
+    /// subsequent turns. Relative paths are resolved against the effective
+    /// cwd for the turn.
     #[experimental("turn/start.runtimeWorkspaceRoots")]
     #[ts(optional = nullable)]
-    pub runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
+    pub runtime_workspace_roots: Option<Vec<PathBuf>>,
     /// Override the approval policy for this turn and subsequent turns.
     #[experimental(nested)]
     #[ts(optional = nullable)]

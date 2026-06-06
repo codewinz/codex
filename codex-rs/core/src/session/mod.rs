@@ -32,6 +32,7 @@ use crate::default_skill_metadata_budget;
 use crate::environment_selection::ResolvedTurnEnvironments;
 use crate::exec_policy::ExecPolicyManager;
 use crate::parse_turn_item;
+use crate::path_utils::normalize_for_native_workdir;
 use crate::realtime_conversation::RealtimeConversationManager;
 use crate::session_prefix::format_subagent_notification_message;
 use crate::skills::SkillRenderSideEffects;
@@ -358,7 +359,6 @@ use codex_protocol::protocol::ThreadMemoryMode;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
-use codex_protocol::protocol::TurnModerationMetadataEvent;
 use codex_protocol::protocol::WarningEvent;
 use codex_protocol::user_input::UserInput;
 use codex_tools::ToolEnvironmentMode;
@@ -507,13 +507,12 @@ impl Codex {
 
         let primary_environment = environment_selections.primary_environment();
         let mut user_instruction_warnings = Vec::new();
-        let user_instructions = if let Some(primary_environment) = primary_environment {
-            AgentsMdManager::new(&config)
-                .user_instructions(primary_environment.as_ref(), &mut user_instruction_warnings)
-                .await
-        } else {
-            None
-        };
+        let user_instructions = AgentsMdManager::new(&config)
+            .user_instructions(
+                primary_environment.as_deref(),
+                &mut user_instruction_warnings,
+            )
+            .await;
         config.startup_warnings.extend(user_instruction_warnings);
 
         let exec_policy = if crate::guardian::is_guardian_reviewer_source(&session_source) {
@@ -558,8 +557,11 @@ impl Codex {
             .await;
         let multi_agent_version =
             resolve_multi_agent_version(&conversation_history, inherited_multi_agent_version);
-        config
-            .validate_multi_agent_v2_config()
+        let startup_multi_agent_version = multi_agent_version
+            .or(model_info.multi_agent_version)
+            .unwrap_or_else(|| config.multi_agent_version_from_features());
+        let _ = config
+            .effective_agent_max_threads(startup_multi_agent_version)
             .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
         let base_instructions = config
             .base_instructions
@@ -579,7 +581,7 @@ impl Codex {
             mode: ModeKind::Default,
             settings: Settings {
                 model: model.clone(),
-                reasoning_effort: config.model_reasoning_effort.clone(),
+                reasoning_effort: config.model_reasoning_effort,
                 developer_instructions: None,
             },
         };
@@ -799,17 +801,6 @@ impl Codex {
     pub(crate) async fn thread_config_snapshot(&self) -> ThreadConfigSnapshot {
         let state = self.session.state.lock().await;
         state.session_configuration.thread_config_snapshot()
-    }
-
-    pub(crate) async fn instruction_sources(&self) -> Vec<AbsolutePathBuf> {
-        let state = self.session.state.lock().await;
-        state
-            .session_configuration
-            .user_instructions
-            .as_ref()
-            .map_or_else(Vec::new, |instructions| {
-                instructions.sources().cloned().collect()
-            })
     }
 
     pub(crate) async fn thread_environment_selections(&self) -> Vec<TurnEnvironmentSelection> {
@@ -2637,15 +2628,6 @@ impl Session {
         .await;
     }
 
-    pub(crate) async fn emit_turn_moderation_metadata(
-        self: &Arc<Self>,
-        turn_context: &Arc<TurnContext>,
-        metadata: TurnModerationMetadataEvent,
-    ) {
-        self.send_event(turn_context, EventMsg::TurnModerationMetadata(metadata))
-            .await;
-    }
-
     pub(crate) async fn replace_history(
         &self,
         items: Vec<ResponseItem>,
@@ -3385,9 +3367,6 @@ pub(crate) fn emit_subagent_session_started(
         session_id: session_id.to_string(),
         thread_id: thread_id.to_string(),
         parent_thread_id: parent_thread_id.map(|thread_id| thread_id.to_string()),
-        forked_from_thread_id: thread_config
-            .forked_from_thread_id
-            .map(|thread_id| thread_id.to_string()),
         product_client_id: client_name.clone(),
         client_name,
         client_version,

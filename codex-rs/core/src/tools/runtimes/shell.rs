@@ -20,7 +20,6 @@ use crate::shell::ShellType;
 use crate::tools::flat_tool_name;
 use crate::tools::network_approval::NetworkApprovalMode;
 use crate::tools::network_approval::NetworkApprovalSpec;
-use crate::tools::runtimes::RuntimePathPrepends;
 #[cfg(unix)]
 use crate::tools::runtimes::apply_zsh_fork_path_prepend;
 use crate::tools::runtimes::build_sandbox_command;
@@ -250,29 +249,22 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
         let env = exec_env_for_sandbox_permissions(&req.env, sandbox_permissions);
         let explicit_env_overrides = req.explicit_env_overrides.clone();
         #[cfg(unix)]
-        let (env, runtime_path_prepends) = {
+        let (env, explicit_env_overrides) = {
             let mut env = env;
-            let mut runtime_path_prepends = RuntimePathPrepends::default();
-            crate::tools::runtimes::apply_package_path_prepend(
-                &mut env,
-                &mut runtime_path_prepends,
-            );
+            let mut explicit_env_overrides = explicit_env_overrides;
             if self.backend == ShellRuntimeBackend::ShellCommandZshFork
                 && let Some(shell_zsh_path) = ctx.session.services.shell_zsh_path.as_deref()
             {
-                apply_zsh_fork_path_prepend(&mut env, &mut runtime_path_prepends, shell_zsh_path);
+                apply_zsh_fork_path_prepend(&mut env, &mut explicit_env_overrides, shell_zsh_path);
             }
-            (env, runtime_path_prepends)
+            (env, explicit_env_overrides)
         };
-        #[cfg(not(unix))]
-        let runtime_path_prepends = RuntimePathPrepends::default();
         let command = maybe_wrap_shell_lc_with_snapshot(
             &req.command,
             session_shell.as_ref(),
             &req.cwd,
             &explicit_env_overrides,
             &env,
-            &runtime_path_prepends,
         );
         let command = disable_powershell_profile_for_elevated_windows_sandbox(
             &command,

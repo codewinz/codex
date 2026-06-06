@@ -1,5 +1,4 @@
 use anyhow::Result;
-use codex_core::LoadedAgentsMd;
 use codex_core::build_prompt_input;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
@@ -22,9 +21,7 @@ async fn build_prompt_input_includes_context_and_user_message() -> Result<()> {
         })
         .build()
         .await?;
-    config.user_instructions = Some(LoadedAgentsMd::from_text_for_testing(
-        "Project-specific test instructions",
-    ));
+    config.user_instructions = Some("Project-specific test instructions".to_string());
 
     let input = build_prompt_input(
         config,

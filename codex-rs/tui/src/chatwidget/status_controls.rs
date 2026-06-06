@@ -212,7 +212,7 @@ impl ChatWidget {
                 });
         let reasoning_effort_override = Some(
             self.effective_reasoning_effort()
-                .or_else(|| self.config.model_reasoning_effort.clone())
+                .or(self.config.model_reasoning_effort)
                 .or(model_default_reasoning_effort),
         );
         let rate_limit_snapshots: Vec<RateLimitSnapshotDisplay> = self
@@ -382,11 +382,15 @@ impl ChatWidget {
     }
 
     pub(super) fn status_line_reasoning_effort_label(
-        effort: Option<&ReasoningEffortConfig>,
-    ) -> String {
+        effort: Option<ReasoningEffortConfig>,
+    ) -> &'static str {
         match effort {
-            None | Some(ReasoningEffortConfig::None) => "default".to_string(),
-            Some(effort) => effort.as_str().to_string(),
+            Some(ReasoningEffortConfig::Minimal) => "minimal",
+            Some(ReasoningEffortConfig::Low) => "low",
+            Some(ReasoningEffortConfig::Medium) => "medium",
+            Some(ReasoningEffortConfig::High) => "high",
+            Some(ReasoningEffortConfig::XHigh) => "xhigh",
+            None | Some(ReasoningEffortConfig::None) => "default",
         }
     }
 }

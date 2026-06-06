@@ -715,12 +715,6 @@ pub enum ContentItem {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AgentMessageInputContent {
-    EncryptedContent { encrypted_content: String },
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageDetail {
@@ -763,11 +757,6 @@ pub enum ResponseItem {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         phase: Option<MessagePhase>,
-    },
-    AgentMessage {
-        author: String,
-        recipient: String,
-        content: Vec<AgentMessageInputContent>,
     },
     Reasoning {
         #[serde(default, skip_serializing)]
@@ -1030,10 +1019,9 @@ pub fn local_image_label_text(label_number: usize) -> String {
     format!("[Image #{label_number}]")
 }
 
-pub fn local_image_open_tag_text_with_path(label_number: usize, path: &std::path::Path) -> String {
+pub fn local_image_open_tag_text(label_number: usize) -> String {
     let label = local_image_label_text(label_number);
-    let path = path.display();
-    format!("{LOCAL_IMAGE_OPEN_TAG_PREFIX}{label} path=\"{path}\"{LOCAL_IMAGE_OPEN_TAG_SUFFIX}")
+    format!("{LOCAL_IMAGE_OPEN_TAG_PREFIX}{label}{LOCAL_IMAGE_OPEN_TAG_SUFFIX}")
 }
 
 pub fn is_local_image_open_tag_text(text: &str) -> bool {
@@ -1092,7 +1080,7 @@ pub fn local_image_content_items_with_label_number(
             let mut items = Vec::with_capacity(3);
             if let Some(label_number) = label_number {
                 items.push(ContentItem::InputText {
-                    text: local_image_open_tag_text_with_path(label_number, path),
+                    text: local_image_open_tag_text(label_number),
                 });
             }
             items.push(ContentItem::InputImage {
@@ -2878,7 +2866,7 @@ mod tests {
                 detail: None,
             },
             UserInput::LocalImage {
-                path: local_path.clone(),
+                path: local_path,
                 detail: None,
             },
         ]);
@@ -2895,10 +2883,7 @@ mod tests {
                 assert_eq!(
                     content.get(1),
                     Some(&ContentItem::InputText {
-                        text: local_image_open_tag_text_with_path(
-                            /*label_number*/ 2,
-                            &local_path
-                        ),
+                        text: local_image_open_tag_text(/*label_number*/ 2),
                     })
                 );
                 assert!(matches!(
@@ -2916,17 +2901,6 @@ mod tests {
         }
 
         Ok(())
-    }
-
-    #[test]
-    fn local_image_open_tag_preserves_path() {
-        assert_eq!(
-            local_image_open_tag_text_with_path(
-                /*label_number*/ 1,
-                std::path::Path::new(r#"/tmp/a&"<b>.png"#),
-            ),
-            r#"<image name=[Image #1] path="/tmp/a&"<b>.png">"#
-        );
     }
 
     #[test]

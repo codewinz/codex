@@ -22,7 +22,6 @@ use codex_protocol::protocol::CollabCloseBeginEvent;
 use codex_protocol::protocol::CollabCloseEndEvent;
 use codex_protocol::protocol::CollabWaitingBeginEvent;
 use codex_protocol::protocol::CollabWaitingEndEvent;
-use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::user_input::UserInput;
 use codex_tools::ToolName;
 use serde::Deserialize;
@@ -43,17 +42,3 @@ mod message_tool;
 mod send_message;
 mod spawn;
 pub(crate) mod wait;
-
-pub(super) fn communication_from_tool_message(
-    author: AgentPath,
-    recipient: AgentPath,
-    message: String,
-) -> InterAgentCommunication {
-    InterAgentCommunication::new_encrypted(
-        author,
-        recipient,
-        Vec::new(),
-        message,
-        /*trigger_turn*/ true,
-    )
-}

@@ -124,19 +124,7 @@ impl GoalService {
                 .map_err(GoalServiceError::InvalidRequest)?;
         }
 
-        let runtime = self.runtime_for_thread(thread_id);
-        // Hold this through the prepare/write window so idle continuation cannot
-        // launch from goal state that this external mutation is about to change.
-        let _goal_state_permit = match runtime.as_ref() {
-            Some(runtime) => Some(
-                runtime
-                    .goal_state_permit()
-                    .await
-                    .map_err(GoalServiceError::Internal)?,
-            ),
-            None => None,
-        };
-        if let Some(runtime) = runtime.as_ref()
+        if let Some(runtime) = self.runtime_for_thread(thread_id)
             && let Err(err) = runtime.prepare_external_goal_mutation().await
         {
             tracing::warn!("failed to prepare external goal mutation: {err}");
@@ -241,19 +229,7 @@ impl GoalService {
         state_db: &codex_state::StateRuntime,
         thread_id: ThreadId,
     ) -> Result<bool, GoalServiceError> {
-        let runtime = self.runtime_for_thread(thread_id);
-        // Hold this through the prepare/write window so idle continuation cannot
-        // launch from goal state that this external mutation is about to change.
-        let goal_state_permit = match runtime.as_ref() {
-            Some(runtime) => Some(
-                runtime
-                    .goal_state_permit()
-                    .await
-                    .map_err(GoalServiceError::Internal)?,
-            ),
-            None => None,
-        };
-        if let Some(runtime) = runtime.as_ref()
+        if let Some(runtime) = self.runtime_for_thread(thread_id)
             && let Err(err) = runtime.prepare_external_goal_mutation().await
         {
             tracing::warn!("failed to prepare external goal mutation: {err}");
@@ -266,8 +242,6 @@ impl GoalService {
             .map_err(|err| {
                 GoalServiceError::Internal(format!("failed to clear thread goal: {err}"))
             })?;
-        drop(goal_state_permit);
-        drop(runtime);
 
         if cleared
             && let Some(runtime) = self.runtime_for_thread(thread_id)

@@ -701,7 +701,6 @@ mod thread_processor_behavior_tests {
                 },
             },
             session_source: SessionSource::Cli,
-            forked_from_thread_id: None,
             parent_thread_id: None,
             thread_source: None,
         };

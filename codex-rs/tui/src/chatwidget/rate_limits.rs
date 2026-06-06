@@ -343,16 +343,14 @@ impl ChatWidget {
                 /*active_permission_profile*/ None,
                 /*windows_sandbox_level*/ None,
                 Some(switch_model_for_events.clone()),
-                Some(Some(default_effort.clone())),
+                Some(Some(default_effort)),
                 /*summary*/ None,
                 /*service_tier*/ None,
                 /*collaboration_mode*/ None,
                 /*personality*/ None,
             )));
             tx.send(AppEvent::UpdateModel(switch_model_for_events.clone()));
-            tx.send(AppEvent::UpdateReasoningEffort(Some(
-                default_effort.clone(),
-            )));
+            tx.send(AppEvent::UpdateReasoningEffort(Some(default_effort)));
         })];
 
         let keep_actions: Vec<SelectionAction> = Vec::new();

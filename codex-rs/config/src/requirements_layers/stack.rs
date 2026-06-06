@@ -176,8 +176,7 @@ fn populate_merged_regular_fields_with_sources(
         allowed_approval_policies,
         allowed_approvals_reviewers,
         allowed_sandbox_modes,
-        allowed_permission_profiles,
-        default_permissions,
+        allowed_permissions,
         remote_sandbox_config: _,
         allowed_web_search_modes,
         allow_managed_hooks_only,
@@ -202,11 +201,7 @@ fn populate_merged_regular_fields_with_sources(
         &["allowed_approvals_reviewers"]
     );
     set_sourced!(allowed_sandbox_modes, &["allowed_sandbox_modes"]);
-    set_sourced!(
-        allowed_permission_profiles,
-        &["allowed_permission_profiles"]
-    );
-    set_sourced!(default_permissions, &["default_permissions"]);
+    set_sourced!(allowed_permissions, &["allowed_permissions"]);
     set_sourced!(allowed_web_search_modes, &["allowed_web_search_modes"]);
     set_sourced!(allow_managed_hooks_only, &["allow_managed_hooks_only"]);
     set_sourced!(allow_appshots, &["allow_appshots"]);

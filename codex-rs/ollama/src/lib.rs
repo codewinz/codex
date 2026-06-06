@@ -1,5 +1,4 @@
 mod client;
-mod line_buffer;
 mod parser;
 mod pull;
 mod url;
