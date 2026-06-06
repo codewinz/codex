@@ -39,6 +39,9 @@ use ratatui::text::Line;
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 
+#[cfg(windows)]
+static ORIGINAL_STDIN_VT_INPUT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
 pub use self::frame_requester::FrameRequester;
 use crate::custom_terminal;
 use crate::custom_terminal::Terminal as CustomTerminal;
@@ -178,6 +181,8 @@ pub fn set_modes() -> Result<()> {
     execute!(stdout(), EnableBracketedPaste)?;
 
     enable_raw_mode()?;
+    #[cfg(windows)]
+    disable_virtual_terminal_input()?;
 
     // Enable keyboard enhancement flags so modifiers for keys like Enter are disambiguated.
     // chat_composer.rs is using a keyboard event listener to enter for any modified keys
@@ -276,6 +281,10 @@ fn restore_common(
     if matches!(raw_mode_restore, RawModeRestore::Disable)
         && let Err(err) = disable_raw_mode()
     {
+        first_error.get_or_insert(err);
+    }
+    #[cfg(windows)]
+    if let Err(err) = restore_virtual_terminal_input() {
         first_error.get_or_insert(err);
     }
     if let Err(err) = execute!(
@@ -1108,6 +1117,79 @@ fn ensure_virtual_terminal_processing() -> Result<()> {
 
     let stderr_handle = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
     enable_for_handle(stderr_handle)?;
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn disable_virtual_terminal_input() -> Result<()> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::ENABLE_VIRTUAL_TERMINAL_INPUT;
+    use windows_sys::Win32::System::Console::GetConsoleMode;
+    use windows_sys::Win32::System::Console::GetStdHandle;
+    use windows_sys::Win32::System::Console::STD_INPUT_HANDLE;
+    use windows_sys::Win32::System::Console::SetConsoleMode;
+
+    let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    if handle == INVALID_HANDLE_VALUE || handle == 0 {
+        return Ok(());
+    }
+
+    let mut mode = 0;
+    if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
+        return Ok(());
+    }
+
+    let original_vt_input = mode & ENABLE_VIRTUAL_TERMINAL_INPUT != 0;
+    let _ = ORIGINAL_STDIN_VT_INPUT.get_or_init(|| original_vt_input);
+
+    if !original_vt_input {
+        return Ok(());
+    }
+
+    if unsafe { SetConsoleMode(handle, mode & !ENABLE_VIRTUAL_TERMINAL_INPUT) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn restore_virtual_terminal_input() -> Result<()> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::ENABLE_VIRTUAL_TERMINAL_INPUT;
+    use windows_sys::Win32::System::Console::GetConsoleMode;
+    use windows_sys::Win32::System::Console::GetStdHandle;
+    use windows_sys::Win32::System::Console::STD_INPUT_HANDLE;
+    use windows_sys::Win32::System::Console::SetConsoleMode;
+
+    let Some(original_vt_input) = ORIGINAL_STDIN_VT_INPUT.get().copied() else {
+        return Ok(());
+    };
+
+    let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    if handle == INVALID_HANDLE_VALUE || handle == 0 {
+        return Ok(());
+    }
+
+    let mut mode = 0;
+    if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
+        return Ok(());
+    }
+
+    let restored_mode = if original_vt_input {
+        mode | ENABLE_VIRTUAL_TERMINAL_INPUT
+    } else {
+        mode & !ENABLE_VIRTUAL_TERMINAL_INPUT
+    };
+
+    if restored_mode == mode {
+        return Ok(());
+    }
+
+    if unsafe { SetConsoleMode(handle, restored_mode) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
 
     Ok(())
 }
