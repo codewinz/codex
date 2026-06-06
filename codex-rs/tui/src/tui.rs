@@ -17,13 +17,15 @@ use crossterm::Command;
 use crossterm::SynchronizedUpdate;
 use crossterm::cursor::SetCursorStyle;
 use crossterm::event::DisableBracketedPaste;
+#[cfg(not(windows))]
 use crossterm::event::DisableFocusChange;
 use crossterm::event::EnableBracketedPaste;
+#[cfg(not(windows))]
 use crossterm::event::EnableFocusChange;
 use crossterm::event::KeyEvent;
 use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 use crossterm::terminal::supports_keyboard_enhancement;
 use ratatui::backend::Backend;
 use ratatui::backend::CrosstermBackend;
@@ -176,14 +178,20 @@ pub fn set_modes() -> Result<()> {
     execute!(stdout(), EnableBracketedPaste)?;
 
     enable_raw_mode()?;
+
     // Enable keyboard enhancement flags so modifiers for keys like Enter are disambiguated.
     // chat_composer.rs is using a keyboard event listener to enter for any modified keys
     // to create a new line that require this.
-    // Some terminals (notably legacy Windows consoles) do not support
-    // keyboard enhancement flags. Attempt to enable them, but continue
+    // On Windows, crossterm reads input through the Windows console backend,
+    // which does not parse ANSI keyboard/focus replies emitted by modern
+    // terminals. Enabling these modes there leaks sequences such as ESC[Z
+    // (Shift+Tab) and ESC[I/ESC[O (focus changes) into the composer.
+    // Other platforms attempt to enable keyboard enhancement flags, but continue
     // gracefully if unsupported.
+    #[cfg(not(windows))]
     keyboard_modes::enable_keyboard_enhancement();
 
+    #[cfg(not(windows))]
     let _ = execute!(stdout(), EnableFocusChange);
     Ok(())
 }
@@ -248,14 +256,22 @@ fn restore_common(
 ) -> Result<()> {
     let mut first_error = ensure_virtual_terminal_processing().err();
 
-    match keyboard_restore {
-        KeyboardRestore::PopStack => keyboard_modes::restore_keyboard_enhancement_stack(),
-        KeyboardRestore::ResetAfterExit => keyboard_modes::reset_keyboard_reporting_after_exit(),
+    #[cfg(not(windows))]
+    {
+        match keyboard_restore {
+            KeyboardRestore::PopStack => keyboard_modes::restore_keyboard_enhancement_stack(),
+            KeyboardRestore::ResetAfterExit => {
+                keyboard_modes::reset_keyboard_reporting_after_exit()
+            }
+        }
     }
+    #[cfg(windows)]
+    let _ = keyboard_restore;
 
     if let Err(err) = execute!(stdout(), DisableBracketedPaste) {
         first_error.get_or_insert(err);
     }
+    #[cfg(not(windows))]
     let _ = execute!(stdout(), DisableFocusChange);
     if matches!(raw_mode_restore, RawModeRestore::Disable)
         && let Err(err) = disable_raw_mode()
@@ -434,12 +450,12 @@ pub(crate) fn init() -> Result<InitializedTerminal> {
     #[cfg(not(unix))]
     let cursor_pos = cursor_position_with_crossterm(&mut backend);
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    let enhanced_keys_supported = false;
+
+    #[cfg(not(any(unix, windows)))]
     let enhanced_keys_supported =
         !keyboard_modes::keyboard_enhancement_disabled() && detect_keyboard_enhancement_supported();
-
-    #[cfg(windows)]
-    probe_windows_default_colors();
 
     let tui = CustomTerminal::with_options_and_cursor_position(backend, cursor_pos)?;
     let stderr_guard = terminal_stderr::TerminalStderrGuard::install()?;
@@ -458,33 +474,11 @@ fn cursor_position_with_crossterm(backend: &mut CrosstermBackend<Stdout>) -> Pos
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn detect_keyboard_enhancement_supported() -> bool {
-    // Non-Unix startup keeps the existing crossterm keyboard probe path because it already knows
-    // how to interpret platform-specific event sources.
+    // Non-Unix startup keeps the existing crossterm path because the bounded probe implementation
+    // relies on Unix file descriptors and `/dev/tty` semantics.
     supports_keyboard_enhancement().unwrap_or(/*default*/ false)
-}
-
-#[cfg(windows)]
-fn probe_windows_default_colors() {
-    let started_at = std::time::Instant::now();
-    match crate::terminal_probe::default_colors(crate::terminal_probe::DEFAULT_TIMEOUT) {
-        Ok(colors) => {
-            tracing::info!(
-                duration_ms = %started_at.elapsed().as_millis(),
-                default_colors = colors.is_some(),
-                "terminal default color probe completed"
-            );
-            crate::terminal_palette::set_default_colors_from_startup_probe(colors);
-        }
-        Err(err) => {
-            tracing::warn!(
-                duration_ms = %started_at.elapsed().as_millis(),
-                "terminal default color probe failed: {err}"
-            );
-            crate::terminal_palette::set_default_colors_from_startup_probe(/*colors*/ None);
-        }
-    }
 }
 
 fn set_panic_hook() {
