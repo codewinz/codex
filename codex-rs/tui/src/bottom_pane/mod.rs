@@ -824,6 +824,14 @@ impl BottomPane {
         self.composer.current_text()
     }
 
+    pub(crate) fn strip_terminal_input_leakage(&mut self) -> bool {
+        let stripped = self.composer.strip_terminal_input_leakage();
+        if stripped {
+            self.request_redraw();
+        }
+        stripped
+    }
+
     pub(crate) fn composer_draft_snapshot(&self) -> chat_composer::ComposerDraftSnapshot {
         self.composer.draft_snapshot()
     }

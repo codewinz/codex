@@ -7,8 +7,99 @@ use super::*;
 
 const SIDE_EDIT_PREVIOUS_UNAVAILABLE_MESSAGE: &str =
     "Editing previous prompts is unavailable in side conversations.";
+const TERMINAL_LEAK_SEQUENCES: &[&str] = &[
+    "[A", "[B", "[C", "[D", "[H", "[F", "[I", "[O", "[Z", "[2~", "[3~", "[5~", "[6~",
+];
+
+#[derive(Debug, Default)]
+pub(super) struct TerminalRecoveryDetector {
+    pending: String,
+    consecutive_leak_sequences: u8,
+}
+
+impl TerminalRecoveryDetector {
+    pub(super) fn observe(&mut self, key_event: KeyEvent) -> bool {
+        if !matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            self.reset();
+            return false;
+        }
+
+        let KeyCode::Char(ch) = key_event.code else {
+            self.reset();
+            return false;
+        };
+
+        if key_event
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            || !ch.is_ascii()
+        {
+            self.reset();
+            return false;
+        }
+
+        self.pending.push(ch);
+        if self.pending.len() > 3 {
+            let keep_from = self.pending.len() - 3;
+            self.pending = self.pending[keep_from..].to_string();
+        }
+
+        if TERMINAL_LEAK_SEQUENCES
+            .iter()
+            .any(|sequence| self.pending.ends_with(sequence))
+        {
+            self.pending.clear();
+            self.consecutive_leak_sequences = self.consecutive_leak_sequences.saturating_add(1);
+            if self.consecutive_leak_sequences >= 2 {
+                self.reset();
+                return true;
+            }
+            return false;
+        }
+
+        if let Some(start) = self.pending.rfind('[') {
+            let suffix = self.pending[start..].to_string();
+            if TERMINAL_LEAK_SEQUENCES
+                .iter()
+                .any(|sequence| sequence.starts_with(&suffix))
+            {
+                self.pending = suffix;
+                return false;
+            }
+        }
+
+        self.reset();
+        false
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.pending.clear();
+        self.consecutive_leak_sequences = 0;
+    }
+}
 
 impl App {
+    fn recover_terminal_input(&mut self, tui: &mut tui::Tui, source: &str) {
+        self.terminal_recovery_detector.reset();
+        let cleaned_composer = self.chat_widget.strip_terminal_input_leakage();
+
+        match tui::reset_modes_for_recovery() {
+            Ok(()) => {
+                let mut message = format!("Terminal input reset ({source}).");
+                if cleaned_composer {
+                    message.push_str(" Removed leaked key sequences from the draft.");
+                }
+                self.chat_widget.add_info_message(message, /*hint*/ None);
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "failed to reset terminal input");
+                self.chat_widget
+                    .add_error_message(format!("Failed to reset terminal input: {err}"));
+            }
+        }
+        tui.frame_requester().schedule_frame();
+    }
+
     pub(super) async fn launch_external_editor(&mut self, tui: &mut tui::Tui) {
         let editor_cmd = match external_editor::resolve_editor_command() {
             Ok(cmd) => cmd,
@@ -97,6 +188,16 @@ impl App {
         app_server: &mut AppServerSession,
         key_event: KeyEvent,
     ) {
+        if terminal_recovery_shortcut_matches(key_event) {
+            self.recover_terminal_input(tui, "Ctrl+Alt+R");
+            return;
+        }
+
+        if self.terminal_recovery_detector.observe(key_event) {
+            self.recover_terminal_input(tui, "leaked key sequence");
+            return;
+        }
+
         // Some terminals, especially on macOS, encode Option+Left/Right as Option+b/f unless
         // enhanced keyboard reporting is available. We only treat those word-motion fallbacks as
         // agent-switch shortcuts when the composer is empty so we never steal the expected
@@ -285,9 +386,28 @@ impl App {
     }
 }
 
+fn terminal_recovery_shortcut_matches(key_event: KeyEvent) -> bool {
+    matches!(
+        key_event,
+        KeyEvent {
+            code: KeyCode::Char(c),
+            modifiers,
+            kind: KeyEventKind::Press,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL)
+            && modifiers.contains(KeyModifiers::ALT)
+            && c.eq_ignore_ascii_case(&'r')
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_support::make_test_app;
+    use super::*;
+
+    fn plain_char(ch: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+    }
 
     #[tokio::test]
     async fn app_keymap_shortcuts_are_disabled_while_keymap_view_is_active() {
@@ -298,5 +418,44 @@ mod tests {
         app.chat_widget.open_keymap_debug(&keymap);
 
         assert!(!app.app_keymap_shortcuts_available());
+    }
+
+    #[test]
+    fn terminal_recovery_shortcut_requires_ctrl_alt_r_press() {
+        assert!(terminal_recovery_shortcut_matches(KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )));
+        assert!(!terminal_recovery_shortcut_matches(KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(!terminal_recovery_shortcut_matches(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )));
+    }
+
+    #[test]
+    fn terminal_recovery_detector_requires_repeated_leak_sequences() {
+        let mut detector = TerminalRecoveryDetector::default();
+
+        assert!(!detector.observe(plain_char('[')));
+        assert!(!detector.observe(plain_char('3')));
+        assert!(!detector.observe(plain_char('~')));
+        assert!(!detector.observe(plain_char('[')));
+        assert!(!detector.observe(plain_char('3')));
+        assert!(detector.observe(plain_char('~')));
+    }
+
+    #[test]
+    fn terminal_recovery_detector_resets_after_regular_input() {
+        let mut detector = TerminalRecoveryDetector::default();
+
+        assert!(!detector.observe(plain_char('[')));
+        assert!(!detector.observe(plain_char('A')));
+        assert!(!detector.observe(plain_char('x')));
+        assert!(!detector.observe(plain_char('[')));
+        assert!(!detector.observe(plain_char('B')));
     }
 }

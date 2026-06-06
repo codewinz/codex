@@ -201,6 +201,21 @@ pub fn set_modes() -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn reset_modes_for_recovery() -> Result<()> {
+    let mut first_error =
+        restore_common(RawModeRestore::Keep, KeyboardRestore::ResetAfterExit).err();
+
+    if let Err(err) = set_modes() {
+        first_error.get_or_insert(err);
+    }
+    flush_terminal_input_buffer();
+
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EnableAlternateScroll;
 

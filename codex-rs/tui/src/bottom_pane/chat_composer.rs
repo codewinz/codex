@@ -1416,6 +1416,20 @@ impl ChatComposer {
         }
     }
 
+    pub(crate) fn strip_terminal_input_leakage(&mut self) -> bool {
+        let text = self.draft.textarea.text();
+        let cleaned = strip_terminal_input_leakage(text);
+        if cleaned == text {
+            return false;
+        }
+
+        self.draft.textarea.set_text_clearing_elements(&cleaned);
+        self.draft.mention_bindings.clear();
+        self.draft.textarea.set_cursor(cleaned.len());
+        self.sync_popups();
+        true
+    }
+
     /// Rehydrate a history entry into the composer with shell-like cursor placement.
     ///
     /// This path restores text, elements, images, mention bindings, and pending paste payloads,
@@ -4458,6 +4472,62 @@ impl ChatComposer {
     }
 }
 
+fn strip_terminal_input_leakage(text: &str) -> String {
+    let mut cleaned = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while index < text.len() {
+        let rest = &text[index..];
+        if let Some(len) = terminal_input_leakage_prefix_len(rest) {
+            index += len;
+            continue;
+        }
+
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        cleaned.push(ch);
+        index += ch.len_utf8();
+    }
+
+    cleaned
+}
+
+fn terminal_input_leakage_prefix_len(text: &str) -> Option<usize> {
+    const SEQUENCES: &[&str] = &[
+        "[A", "[B", "[C", "[D", "[H", "[F", "[I", "[O", "[Z", "[2~", "[3~", "[5~", "[6~",
+    ];
+
+    for sequence in SEQUENCES {
+        if text.starts_with(sequence) {
+            return Some(sequence.len());
+        }
+    }
+
+    let Some(after_esc) = text.strip_prefix('\x1b') else {
+        return None;
+    };
+    if let Some(len) = csi_sequence_len(after_esc) {
+        return Some(1 + len);
+    }
+
+    None
+}
+
+fn csi_sequence_len(text: &str) -> Option<usize> {
+    if !text.starts_with('[') {
+        return None;
+    }
+
+    for (index, byte) in text.bytes().enumerate().skip(1) {
+        if (0x40..=0x7e).contains(&byte) {
+            return Some(index + 1);
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::attachment_state::AttachedImage;
@@ -4479,6 +4549,20 @@ mod tests {
     use crate::bottom_pane::textarea::TextArea;
     use codex_protocol::models::local_image_label_text;
     use tokio::sync::mpsc::unbounded_channel;
+
+    #[test]
+    fn strip_terminal_input_leakage_removes_known_vt_fragments() {
+        let input = "keep [3~[3~ middle [A[B[D[C end [Z";
+
+        assert_eq!(strip_terminal_input_leakage(input), "keep  middle  end ");
+    }
+
+    #[test]
+    fn strip_terminal_input_leakage_removes_escaped_csi_sequences() {
+        let input = "start \x1b[3~\x1b[A\x1b[1;2Z end";
+
+        assert_eq!(strip_terminal_input_leakage(input), "start  end");
+    }
 
     #[test]
     fn footer_hint_row_is_separated_from_composer() {

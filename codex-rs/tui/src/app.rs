@@ -505,6 +505,7 @@ pub(crate) struct App {
 
     pub(crate) enhanced_keys_supported: bool,
     pub(crate) keymap: RuntimeKeymap,
+    terminal_recovery_detector: input::TerminalRecoveryDetector,
 
     /// Controls the animation thread that sends CommitTick events.
     pub(crate) commit_anim_running: Arc<AtomicBool>,
@@ -1001,6 +1002,7 @@ See the Codex keymap documentation for supported actions and examples."
             file_search,
             enhanced_keys_supported,
             keymap: runtime_keymap,
+            terminal_recovery_detector: input::TerminalRecoveryDetector::default(),
             transcript_cells: Vec::new(),
             overlay: None,
             deferred_history_lines: Vec::new(),

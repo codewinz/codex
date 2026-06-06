@@ -1738,6 +1738,14 @@ impl ChatWidget {
         self.refresh_plan_mode_nudge();
     }
 
+    pub(crate) fn strip_terminal_input_leakage(&mut self) -> bool {
+        let stripped = self.bottom_pane.strip_terminal_input_leakage();
+        if stripped {
+            self.refresh_plan_mode_nudge();
+        }
+        stripped
+    }
+
     pub(crate) fn set_remote_image_urls(&mut self, remote_image_urls: Vec<String>) {
         self.bottom_pane.set_remote_image_urls(remote_image_urls);
     }
