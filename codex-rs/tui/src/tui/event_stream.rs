@@ -1,11 +1,11 @@
 //! Event stream plumbing for the TUI.
 //!
-//! - [`EventBroker`] holds the shared crossterm stream so multiple callers reuse the same
+//! - [`EventBroker`] holds the shared terminal event source so multiple callers reuse the same
 //!   input source and can drop/recreate it on pause/resume without rebuilding consumers.
-//! - [`TuiEventStream`] wraps a draw event subscription plus the shared [`EventBroker`] and maps crossterm
+//! - [`TuiEventStream`] wraps a draw event subscription plus the shared [`EventBroker`] and maps terminal
 //!   events into [`TuiEvent`].
 //! - [`EventSource`] abstracts the underlying event producer; the real implementation is
-//!   [`CrosstermEventSource`] and tests can swap in [`FakeEventSource`].
+//!   platform-specific and tests can swap in [`FakeEventSource`].
 //!
 //! The motivation for dropping/recreating the crossterm event stream is to enable the TUI to fully relinquish stdin.
 //! If the stream is not dropped, it will continue to read from stdin even if it is not actively being polled
@@ -35,28 +35,34 @@ use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
 use super::TuiEvent;
 use super::input_recovery::TerminalInputRecoveryDetector;
+#[cfg(windows)]
+use super::windows_event_source::WindowsEventSource;
 
 /// Result type produced by an event source.
 pub type EventResult = std::io::Result<Event>;
 
 /// Abstraction over a source of terminal events. Allows swapping in a fake for tests.
-/// Value in production is [`CrosstermEventSource`].
 pub trait EventSource: Send + 'static {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<EventResult>>;
 }
 
-/// Shared crossterm input state for all [`TuiEventStream`] instances. A single crossterm EventStream
+#[cfg(windows)]
+type DefaultEventSource = WindowsEventSource;
+#[cfg(not(windows))]
+type DefaultEventSource = CrosstermEventSource;
+
+/// Shared terminal input state for all [`TuiEventStream`] instances. A single event source
 /// is reused so all streams still see the same input source.
 ///
 /// This intermediate layer enables dropping/recreating the underlying EventStream (pause/resume) without rebuilding consumers.
-pub struct EventBroker<S: EventSource = CrosstermEventSource> {
+pub struct EventBroker<S: EventSource = DefaultEventSource> {
     state: Mutex<EventBrokerState<S>>,
     resume_events_tx: watch::Sender<()>,
 }
 
 /// Tracks state of underlying [`EventSource`].
 enum EventBrokerState<S: EventSource> {
-    Paused,     // Underlying event source (i.e., crossterm EventStream) dropped
+    Paused,     // Underlying event source dropped
     Start,      // A new event source will be created on next poll
     Running(S), // Event source is currently running
 }
@@ -115,15 +121,18 @@ impl<S: EventSource + Default> EventBroker<S> {
     }
 }
 
-/// Real crossterm-backed event source.
+/// Real crossterm-backed event source for non-Windows platforms.
+#[cfg(not(windows))]
 pub struct CrosstermEventSource(pub crossterm::event::EventStream);
 
+#[cfg(not(windows))]
 impl Default for CrosstermEventSource {
     fn default() -> Self {
         Self(crossterm::event::EventStream::new())
     }
 }
 
+#[cfg(not(windows))]
 impl EventSource for CrosstermEventSource {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<EventResult>> {
         Pin::new(&mut self.get_mut().0).poll_next(cx)
@@ -132,12 +141,12 @@ impl EventSource for CrosstermEventSource {
 
 /// TuiEventStream is a struct for reading TUI events (draws and user input).
 /// Each instance has its own draw subscription (the draw channel is broadcast, so
-/// multiple receivers are fine), while crossterm input is funneled through a
-/// single shared [`EventBroker`] because crossterm uses a global stdin reader and
-/// does not support fan-out. Multiple TuiEventStream instances can exist during the app lifetime
+/// multiple receivers are fine), while terminal input is funneled through a
+/// single shared [`EventBroker`] because it does not support fan-out. Multiple
+/// TuiEventStream instances can exist during the app lifetime
 /// (for nested or sequential screens), but only one should be polled at a time,
 /// otherwise one instance can consume ("steal") input events and the other will miss them.
-pub struct TuiEventStream<S: EventSource + Default + Unpin = CrosstermEventSource> {
+pub struct TuiEventStream<S: EventSource + Default + Unpin = DefaultEventSource> {
     broker: Arc<EventBroker<S>>,
     draw_stream: BroadcastStream<()>,
     resume_stream: WatchStream<()>,
@@ -173,13 +182,13 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
         }
     }
 
-    /// Poll the shared crossterm stream for the next mapped `TuiEvent`.
+    /// Poll the shared terminal event source for the next mapped `TuiEvent`.
     ///
     /// This skips events we don't use (mouse events, etc.) and keeps polling until it yields
     /// a mapped event, hits `Pending`, or sees EOF/error. When the broker is paused, it drops
     /// the underlying stream and returns `Pending` to fully release stdin.
     pub fn poll_crossterm_event(&mut self, cx: &mut Context<'_>) -> Poll<Option<TuiEvent>> {
-        // Some crossterm events map to None (e.g. FocusLost, mouse); loop so we keep polling
+        // Some terminal events map to None (e.g. FocusLost, mouse); loop so we keep polling
         // until we return a mapped event, hit Pending, or see EOF/error.
         loop {
             let poll_result = {
@@ -236,7 +245,7 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
         }
     }
 
-    /// Map a crossterm event to a [`TuiEvent`], skipping events we don't use (mouse events, etc.).
+    /// Map a terminal event to a [`TuiEvent`], skipping events we don't use (mouse events, etc.).
     fn map_crossterm_event(&mut self, event: Event) -> Option<TuiEvent> {
         match event {
             Event::Key(key_event) => {
