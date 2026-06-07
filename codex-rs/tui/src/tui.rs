@@ -69,6 +69,11 @@ mod input_recovery_tests;
 mod job_control;
 mod keyboard_modes;
 mod terminal_stderr;
+#[cfg(windows)]
+mod windows_event_source;
+#[cfg(all(test, windows))]
+#[path = "tui/windows_event_source_tests.rs"]
+mod windows_event_source_tests;
 
 pub use self::input_recovery::InputRecoverySource;
 
