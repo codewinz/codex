@@ -1,6 +1,7 @@
 //! App-level orchestration tests for the TUI.
 
 mod model_catalog;
+mod resize_reflow;
 mod session_summary;
 mod startup;
 
