@@ -23,16 +23,15 @@ use super::chunking::ChunkingDecision;
 use super::chunking::ChunkingMode;
 use super::chunking::DrainPlan;
 use super::chunking::QueueSnapshot;
+use super::chunking::should_catch_up_native_scrollback;
 use super::controller::PlanStreamController;
 use super::controller::StreamController;
 
 /// Describes whether a commit tick may run in all modes or only in catch-up mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CommitTickScope {
-    /// Always run the tick, regardless of current chunking mode.
-    AnyMode,
-    /// Run model transitions and policy updates, but commit lines only in `CatchUp`.
-    CatchUpOnly,
+    /// Keep native terminal scrollback stable by draining only severe queued backlog.
+    NativeScrollback,
 }
 
 /// Describes what a single commit tick produced.
@@ -49,7 +48,7 @@ impl Default for CommitTickOutput {
     /// Creates an output that represents "no commit performed".
     ///
     /// This is used when a tick is intentionally suppressed, for example when
-    /// the scope is [`CommitTickScope::CatchUpOnly`] and policy is not in catch-up mode.
+    /// native scrollback should not be mutated for a small smooth-mode queue.
     fn default() -> Self {
         Self {
             cells: Vec::new(),
@@ -79,8 +78,19 @@ pub(crate) fn run_commit_tick(
         now,
     );
     let decision = resolve_chunking_plan(policy, snapshot, now);
-    if scope == CommitTickScope::CatchUpOnly && decision.mode != ChunkingMode::CatchUp {
-        return CommitTickOutput::default();
+    match scope {
+        CommitTickScope::NativeScrollback
+            if !should_catch_up_native_scrollback(snapshot)
+                || decision.mode != ChunkingMode::CatchUp =>
+        {
+            let has_controller = stream_controller.is_some() || plan_stream_controller.is_some();
+            return CommitTickOutput {
+                cells: Vec::new(),
+                has_controller,
+                all_idle: !has_controller,
+            };
+        }
+        CommitTickScope::NativeScrollback => {}
     }
 
     apply_commit_tick_plan(
@@ -210,5 +220,63 @@ fn max_duration(lhs: Option<Duration>, rhs: Option<Duration>) -> Option<Duration
         (Some(left), None) => Some(left),
         (None, Some(right)) => Some(right),
         (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::history_cell::HistoryRenderMode;
+    use pretty_assertions::assert_eq;
+
+    fn stream_controller() -> StreamController {
+        StreamController::new(Some(80), &std::env::temp_dir(), HistoryRenderMode::Rich)
+    }
+
+    #[test]
+    fn native_scrollback_scope_defers_smooth_backlog() {
+        let mut policy = AdaptiveChunkingPolicy::default();
+        let mut controller = stream_controller();
+        assert!(controller.push("line waiting for final flush\n"));
+
+        let output = run_commit_tick(
+            &mut policy,
+            Some(&mut controller),
+            None,
+            CommitTickScope::NativeScrollback,
+            Instant::now(),
+        );
+
+        assert!(
+            output.cells.is_empty(),
+            "smooth backlog should not mutate native scrollback"
+        );
+        assert_eq!(controller.queued_lines(), 1);
+    }
+
+    #[test]
+    fn native_scrollback_scope_allows_severe_catch_up() {
+        let mut policy = AdaptiveChunkingPolicy::default();
+        let mut controller = stream_controller();
+        let mut source = String::new();
+        for i in 0..64 {
+            source.push_str(&format!("line {i}\n"));
+        }
+        assert!(controller.push(&source));
+
+        let output = run_commit_tick(
+            &mut policy,
+            Some(&mut controller),
+            None,
+            CommitTickScope::NativeScrollback,
+            Instant::now(),
+        );
+
+        assert!(
+            !output.cells.is_empty(),
+            "severe backlog should still catch up"
+        );
+        assert_eq!(controller.queued_lines(), 0);
+        assert!(output.all_idle);
     }
 }

@@ -1,8 +1,8 @@
 //! Two-region streaming controllers for agent messages and proposed plans.
 //!
-//! Each stream partitions rendered markdown into a *stable region* (committed
-//! to scrollback via the animation queue in `StreamState`) and a *tail region*
-//! (mutable, displayed in the active-cell slot as a transient stream-tail cell).
+//! Each stream partitions rendered markdown into a *stable region* (queued for
+//! scrollback via `StreamState`) and an active tail region (displayed in the
+//! active-cell slot as a transient stream-tail cell).
 //!
 //! `StreamCore` owns the shared bookkeeping: source accumulation, re-rendering,
 //! stable/tail partitioning, commit-animation queue management, and terminal
@@ -31,7 +31,8 @@
 //!
 //! - `emitted_stable_len <= enqueued_stable_len <= rendered_lines.len()`.
 //! - `raw_source` is append-only until `reset()`; never modified mid-stream.
-//! - Tail starts exactly at `enqueued_stable_len`.
+//! - Active tail starts exactly at `emitted_stable_len` so queued-but-unemitted
+//!   lines remain visible until they enter scrollback.
 //! - During confirmed table streaming, only lines from the table header onward
 //!   are forced into tail; pre-table lines may remain stable.
 
@@ -203,21 +204,23 @@ impl StreamCore {
         self.state.oldest_queued_age(now)
     }
 
-    /// Lines that belong to the mutable tail, not yet queued for stable commit.
+    /// Lines that should stay visible in the active tail.
     ///
-    /// The tail starts at `enqueued_stable_len`, so this returns the portion
-    /// of the current render snapshot that is still allowed to change without
-    /// violating scrollback ordering. If callers were to derive the tail from
-    /// `emitted_stable_len` instead, queued-but-not-yet-emitted lines could
-    /// reappear in the active cell and duplicate content on screen.
+    /// The tail starts at `emitted_stable_len`, not `enqueued_stable_len`, so lines queued for
+    /// scrollback do not disappear while native-scrollback-safe commit ticks defer emission.
     #[inline]
     fn current_tail_lines(&self) -> Vec<HyperlinkLine> {
-        let start = self.enqueued_stable_len.min(self.rendered_lines.len());
+        let start = self.emitted_stable_len.min(self.rendered_lines.len());
         self.rendered_lines[start..].to_vec()
     }
 
     #[inline]
     fn has_tail(&self) -> bool {
+        self.emitted_stable_len < self.rendered_lines.len()
+    }
+
+    #[inline]
+    fn has_unqueued_tail(&self) -> bool {
         self.enqueued_stable_len < self.rendered_lines.len()
     }
 
@@ -529,12 +532,18 @@ impl StreamController {
 
     #[inline]
     pub(crate) fn tail_starts_stream(&self) -> bool {
-        !self.header_emitted && self.core.enqueued_stable_len == 0
+        !self.header_emitted && self.core.emitted_stable_len == 0
     }
 
+    #[cfg(test)]
     #[inline]
     pub(crate) fn has_live_tail(&self) -> bool {
         self.core.has_tail()
+    }
+
+    #[inline]
+    pub(crate) fn has_unqueued_tail(&self) -> bool {
+        self.core.has_unqueued_tail()
     }
 
     pub(crate) fn clear_queue(&mut self) {
@@ -635,9 +644,15 @@ impl PlanStreamController {
         self.core.queued_lines()
     }
 
+    #[cfg(test)]
     #[inline]
     pub(crate) fn has_live_tail(&self) -> bool {
         self.core.has_tail()
+    }
+
+    #[inline]
+    pub(crate) fn has_unqueued_tail(&self) -> bool {
+        self.core.has_unqueued_tail()
     }
 
     #[inline]
@@ -647,7 +662,7 @@ impl PlanStreamController {
 
     #[inline]
     pub(crate) fn tail_starts_stream(&self) -> bool {
-        !self.header_emitted && self.core.enqueued_stable_len == 0
+        !self.header_emitted && self.core.emitted_stable_len == 0
     }
 
     pub(crate) fn current_tail_display_lines(&self) -> Vec<HyperlinkLine> {
@@ -862,6 +877,58 @@ mod tests {
     }
 
     #[test]
+    fn controller_tail_includes_queued_unemitted_lines() {
+        let mut ctrl = stream_controller(Some(80));
+        assert!(ctrl.push("line waiting for scrollback\n"));
+        assert_eq!(ctrl.queued_lines(), 1);
+
+        let tail = hyperlink_lines_to_plain_strings(&ctrl.current_tail_lines());
+        assert!(
+            tail.iter()
+                .any(|line| line.contains("line waiting for scrollback")),
+            "queued-but-unemitted lines should remain visible in the active tail: {tail:?}",
+        );
+        assert!(
+            ctrl.has_live_tail(),
+            "queued-but-unemitted lines should count as live tail"
+        );
+
+        let (cell, idle) = ctrl.on_commit_tick();
+        assert!(cell.is_some(), "expected queued line to emit");
+        assert!(idle, "expected queue to be drained");
+        assert!(
+            ctrl.current_tail_lines().is_empty(),
+            "emitted lines should leave the active tail"
+        );
+    }
+
+    #[test]
+    fn plan_controller_tail_includes_queued_unemitted_lines() {
+        let mut ctrl = plan_stream_controller(Some(80));
+        assert!(ctrl.push("1. Keep native scrollback stable\n"));
+        assert_eq!(ctrl.queued_lines(), 1);
+
+        let tail = hyperlink_lines_to_plain_strings(&ctrl.current_tail_display_lines());
+        assert!(
+            tail.iter()
+                .any(|line| line.contains("Keep native scrollback stable")),
+            "queued-but-unemitted plan lines should remain visible in the active tail: {tail:?}",
+        );
+        assert!(
+            ctrl.has_live_tail(),
+            "queued-but-unemitted plan lines should count as live tail"
+        );
+
+        let (cell, idle) = ctrl.on_commit_tick();
+        assert!(cell.is_some(), "expected queued plan line to emit");
+        assert!(idle, "expected queue to be drained");
+        assert!(
+            ctrl.current_tail_display_lines().is_empty(),
+            "emitted plan lines should leave the active tail"
+        );
+    }
+
+    #[test]
     fn controller_has_live_tail_reflects_tail_presence() {
         let mut ctrl = stream_controller(Some(80));
         assert!(!ctrl.has_live_tail());
@@ -871,6 +938,12 @@ mod tests {
         assert!(ctrl.has_live_tail());
 
         ctrl.core.enqueued_stable_len = 1;
+        assert!(
+            ctrl.has_live_tail(),
+            "queued-but-unemitted lines should remain in the active tail"
+        );
+
+        ctrl.core.emitted_stable_len = 1;
         assert!(!ctrl.has_live_tail());
     }
 
@@ -884,6 +957,12 @@ mod tests {
         assert!(ctrl.has_live_tail());
 
         ctrl.core.enqueued_stable_len = 1;
+        assert!(
+            ctrl.has_live_tail(),
+            "queued-but-unemitted plan lines should remain in the active tail"
+        );
+
+        ctrl.core.emitted_stable_len = 1;
         assert!(!ctrl.has_live_tail());
     }
 
