@@ -387,6 +387,43 @@ async fn enqueue_primary_thread_session_replays_turns_before_initial_prompt_subm
 }
 
 #[tokio::test]
+async fn enqueue_primary_thread_session_buffers_resume_replay_even_without_resize_reflow()
+-> Result<()> {
+    let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
+    disable_terminal_resize_reflow(&mut app);
+    let thread_id = ThreadId::new();
+
+    app.enqueue_primary_thread_session(
+        test_thread_session(thread_id, test_path_buf("/tmp/project")),
+        vec![test_turn(
+            "turn-1",
+            TurnStatus::Completed,
+            vec![ThreadItem::UserMessage {
+                id: "user-1".to_string(),
+                client_id: None,
+                content: vec![AppServerUserInput::Text {
+                    text: "earlier prompt".to_string(),
+                    text_elements: Vec::new(),
+                }],
+            }],
+        )],
+    )
+    .await?;
+
+    let replay_events = std::iter::from_fn(|| app_event_rx.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::BeginInitialHistoryReplayBuffer => Some("begin"),
+            AppEvent::InsertHistoryCell(_) => Some("insert"),
+            AppEvent::EndInitialHistoryReplayBuffer => Some("end"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(replay_events, vec!["insert", "begin", "insert", "end"]);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn reset_thread_event_state_aborts_listener_tasks() {
     struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
 
@@ -3910,6 +3947,13 @@ fn enable_terminal_resize_reflow(app: &mut App) {
     app.config
         .features
         .set_enabled(Feature::TerminalResizeReflow, /*enabled*/ true)
+        .expect("feature should be configurable");
+}
+
+fn disable_terminal_resize_reflow(app: &mut App) {
+    app.config
+        .features
+        .set_enabled(Feature::TerminalResizeReflow, /*enabled*/ false)
         .expect("feature should be configurable");
 }
 

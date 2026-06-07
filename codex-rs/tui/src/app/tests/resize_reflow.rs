@@ -2,6 +2,16 @@ use super::*;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
+async fn initial_resume_replay_buffer_starts_without_resize_reflow() {
+    let (mut app, _rx, _op_rx) = make_test_app_with_channels().await;
+    disable_terminal_resize_reflow(&mut app);
+
+    app.begin_initial_history_replay_buffer();
+
+    assert!(app.initial_history_replay_buffer.is_some());
+}
+
+#[tokio::test]
 async fn initial_resume_replay_buffer_keeps_visible_tail_when_resize_row_cap_is_larger() {
     let (mut app, _rx, _op_rx) = make_test_app_with_channels().await;
     enable_terminal_resize_reflow(&mut app);

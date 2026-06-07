@@ -33,6 +33,12 @@ use crate::terminal_hyperlinks::HyperlinkLine;
 use crate::transcript_reflow::TRANSCRIPT_REFLOW_DEBOUNCE;
 use crate::tui;
 
+fn current_terminal_size(tui: &tui::Tui) -> Size {
+    tui.terminal
+        .size()
+        .unwrap_or(tui.terminal.last_known_screen_size)
+}
+
 struct ReflowCellDisplay {
     lines: Vec<HyperlinkLine>,
     is_stream_continuation: bool,
@@ -118,12 +124,11 @@ impl App {
     /// Start retaining initial resume replay rows before they are written to scrollback.
     ///
     /// Resume replay can insert thousands of already-finalized history cells before the first draw.
-    /// When resize reflow is enabled, buffering here limits the startup write to the rows that can
-    /// be visible above the composer. Starting this buffer while an overlay owns rendering would
-    /// split transcript ownership, so overlay replay continues through the normal deferred-history
-    /// path.
+    /// Buffering here limits the startup write to the rows that can be visible above the composer.
+    /// Starting this buffer while an overlay owns rendering would split transcript ownership, so
+    /// overlay replay continues through the normal deferred-history path.
     pub(super) fn begin_initial_history_replay_buffer(&mut self) {
-        if self.terminal_resize_reflow_enabled() && self.overlay.is_none() {
+        if self.overlay.is_none() {
             self.initial_history_replay_buffer = Some(Default::default());
         }
     }
@@ -157,7 +162,7 @@ impl App {
 
         if buffer.retained_lines.is_empty() {
             if buffer.render_from_transcript_tail {
-                let width = tui.terminal.last_known_screen_size.width;
+                let width = current_terminal_size(tui).width;
                 let reflowed_lines = self.render_transcript_lines_for_reflow(width).lines;
                 if !reflowed_lines.is_empty() {
                     tui.insert_history_hyperlink_lines_with_wrap_policy(
@@ -178,9 +183,8 @@ impl App {
 
     pub(super) fn insert_history_cell_lines_with_initial_replay_buffer(
         &mut self,
-        tui: &mut tui::Tui,
         cell: &dyn HistoryCell,
-        width: u16,
+        terminal_size: Size,
     ) {
         if self
             .initial_history_replay_buffer
@@ -190,6 +194,7 @@ impl App {
             return;
         }
 
+        let width = self.chat_widget.history_wrap_width(terminal_size.width);
         let display = self.display_lines_for_history_insert(cell, width);
 
         if display.is_empty() {
@@ -199,10 +204,7 @@ impl App {
         if self.overlay.is_some() {
             self.deferred_history_lines.extend(display);
         } else {
-            self.buffer_initial_resume_replay_display_lines(
-                display,
-                tui.terminal.last_known_screen_size,
-            );
+            self.buffer_initial_resume_replay_display_lines(display, terminal_size);
         }
     }
 

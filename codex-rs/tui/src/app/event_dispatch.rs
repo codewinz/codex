@@ -248,19 +248,20 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
                 self.transcript_cells.push(cell.clone());
+                let terminal_size = tui
+                    .terminal
+                    .size()
+                    .unwrap_or(tui.terminal.last_known_screen_size);
                 if self.initial_history_replay_buffer.as_ref().is_some() {
                     self.insert_history_cell_lines_with_initial_replay_buffer(
-                        tui,
                         cell.as_ref(),
-                        self.chat_widget
-                            .history_wrap_width(tui.terminal.last_known_screen_size.width),
+                        terminal_size,
                     );
                 } else {
                     self.insert_history_cell_lines(
                         tui,
                         cell.as_ref(),
-                        self.chat_widget
-                            .history_wrap_width(tui.terminal.last_known_screen_size.width),
+                        self.chat_widget.history_wrap_width(terminal_size.width),
                     );
                 }
             }
