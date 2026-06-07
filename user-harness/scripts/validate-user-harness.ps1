@@ -16,6 +16,8 @@ $requiredPaths = @(
   'references/testing.md',
   'references/sentry-tdd.md',
   'references/shared-worktree-context.md',
+  'references/codex-cli-deployment.md',
+  'scripts/deploy-codex-codewinz.ps1',
   'templates',
   'templates/execution-plan.md',
   'templates/bugfix-tdd.md',
@@ -69,6 +71,33 @@ $sharedContext = Read-HarnessFile 'references/shared-worktree-context.md'
 foreach ($requiredToken in @('<git-common-dir>/agent-context/', 'sanitized tracked exports', 'Never store secrets')) {
   if ($sharedContext -notmatch [regex]::Escape($requiredToken)) {
     throw "shared-worktree-context.md is missing expected content: $requiredToken"
+  }
+}
+
+$deployment = Read-HarnessFile 'references/codex-cli-deployment.md'
+foreach ($requiredToken in @(
+  'C:\Users\codewinz\AppData\Local\Programs\OpenAI\Codex\bin',
+  'codex-codewinz-{baseVersion}+build.{N}.exe',
+  'codex-codewinz.exe',
+  'build number',
+  'SymbolicLink'
+)) {
+  if ($deployment -notmatch [regex]::Escape($requiredToken)) {
+    throw "codex-cli-deployment.md is missing expected content: $requiredToken"
+  }
+}
+
+$deployScript = Read-HarnessFile 'scripts/deploy-codex-codewinz.ps1'
+foreach ($requiredToken in @(
+  'SourceExe',
+  'BaseVersion',
+  'InstallBin',
+  'codex-codewinz-$base+build.$buildNumber.exe',
+  'Get-NextBuildNumber',
+  'New-Item -ItemType SymbolicLink'
+)) {
+  if ($deployScript -notmatch [regex]::Escape($requiredToken)) {
+    throw "deploy-codex-codewinz.ps1 is missing expected content: $requiredToken"
   }
 }
 

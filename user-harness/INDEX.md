@@ -14,7 +14,7 @@ Do not use this harness for:
 - product rules
 - database schema
 - service integrations
-- deployment runbooks
+- service or product deployment runbooks
 - repo-specific exceptions
 
 Document map:
@@ -26,6 +26,7 @@ Document map:
 - [MULTI_AGENT.md](./MULTI_AGENT.md): role guidance for delegated work
 - [references/](./references/): optional reusable references
 - [templates/](./templates/): reusable writing templates
+- [references/codex-cli-deployment.md](./references/codex-cli-deployment.md): local Codewinz Codex CLI deployment rule
 
 Precedence:
 1. system and developer instructions
