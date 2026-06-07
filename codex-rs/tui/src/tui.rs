@@ -74,6 +74,11 @@ mod windows_event_source;
 #[cfg(all(test, windows))]
 #[path = "tui/windows_event_source_tests.rs"]
 mod windows_event_source_tests;
+#[cfg(windows)]
+mod windows_recovery_hotkey;
+#[cfg(all(test, windows))]
+#[path = "tui/windows_recovery_hotkey_tests.rs"]
+mod windows_recovery_hotkey_tests;
 
 pub use self::input_recovery::InputRecoverySource;
 

@@ -27,6 +27,7 @@ use std::task::Poll;
 
 use crossterm::event::Event;
 use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::BroadcastStream;
@@ -34,6 +35,7 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
 use super::TuiEvent;
+use super::input_recovery::InputRecoverySource;
 use super::input_recovery::TerminalInputRecoveryDetector;
 #[cfg(windows)]
 use super::windows_event_source::WindowsEventSource;
@@ -150,6 +152,7 @@ pub struct TuiEventStream<S: EventSource + Default + Unpin = DefaultEventSource>
     broker: Arc<EventBroker<S>>,
     draw_stream: BroadcastStream<()>,
     resume_stream: WatchStream<()>,
+    recovery_events_rx: Option<mpsc::UnboundedReceiver<InputRecoverySource>>,
     terminal_focused: Arc<AtomicBool>,
     input_recovery_detector: TerminalInputRecoveryDetector,
     poll_draw_first: bool,
@@ -167,11 +170,32 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
         #[cfg(unix)] suspend_context: crate::tui::job_control::SuspendContext,
         #[cfg(unix)] alt_screen_active: Arc<AtomicBool>,
     ) -> Self {
+        Self::new_with_recovery_events(
+            broker,
+            draw_rx,
+            terminal_focused,
+            platform_recovery_events_rx(),
+            #[cfg(unix)]
+            suspend_context,
+            #[cfg(unix)]
+            alt_screen_active,
+        )
+    }
+
+    pub(crate) fn new_with_recovery_events(
+        broker: Arc<EventBroker<S>>,
+        draw_rx: broadcast::Receiver<()>,
+        terminal_focused: Arc<AtomicBool>,
+        recovery_events_rx: Option<mpsc::UnboundedReceiver<InputRecoverySource>>,
+        #[cfg(unix)] suspend_context: crate::tui::job_control::SuspendContext,
+        #[cfg(unix)] alt_screen_active: Arc<AtomicBool>,
+    ) -> Self {
         let resume_stream = WatchStream::from_changes(broker.resume_events_rx());
         Self {
             broker,
             draw_stream: BroadcastStream::new(draw_rx),
             resume_stream,
+            recovery_events_rx,
             terminal_focused,
             input_recovery_detector: TerminalInputRecoveryDetector::default(),
             poll_draw_first: false,
@@ -179,6 +203,21 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
             suspend_context,
             #[cfg(unix)]
             alt_screen_active,
+        }
+    }
+
+    fn poll_recovery_event(&mut self, cx: &mut Context<'_>) -> Poll<Option<TuiEvent>> {
+        let Some(rx) = self.recovery_events_rx.as_mut() else {
+            return Poll::Pending;
+        };
+
+        match Pin::new(rx).poll_recv(cx) {
+            Poll::Ready(Some(source)) => Poll::Ready(Some(TuiEvent::InputRecovery(source))),
+            Poll::Ready(None) => {
+                self.recovery_events_rx = None;
+                Poll::Pending
+            }
+            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -277,10 +316,26 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
 
 impl<S: EventSource + Default + Unpin> Unpin for TuiEventStream<S> {}
 
+fn platform_recovery_events_rx() -> Option<mpsc::UnboundedReceiver<InputRecoverySource>> {
+    #[cfg(all(windows, not(test)))]
+    {
+        Some(super::windows_recovery_hotkey::spawn_recovery_hotkey_monitor())
+    }
+
+    #[cfg(any(not(windows), test))]
+    {
+        None
+    }
+}
+
 impl<S: EventSource + Default + Unpin> Stream for TuiEventStream<S> {
     type Item = TuiEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if let Poll::Ready(event) = self.poll_recovery_event(cx) {
+            return Poll::Ready(event);
+        }
+
         // approximate fairness + no starvation via round-robin.
         let draw_first = self.poll_draw_first;
         self.poll_draw_first = !self.poll_draw_first;
@@ -377,6 +432,24 @@ mod tests {
             broker,
             draw_rx,
             terminal_focused,
+            #[cfg(unix)]
+            crate::tui::job_control::SuspendContext::new(),
+            #[cfg(unix)]
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+
+    fn make_stream_with_recovery_events(
+        broker: Arc<EventBroker<FakeEventSource>>,
+        draw_rx: broadcast::Receiver<()>,
+        terminal_focused: Arc<AtomicBool>,
+        recovery_rx: mpsc::UnboundedReceiver<crate::tui::InputRecoverySource>,
+    ) -> TuiEventStream<FakeEventSource> {
+        TuiEventStream::new_with_recovery_events(
+            broker,
+            draw_rx,
+            terminal_focused,
+            Some(recovery_rx),
             #[cfg(unix)]
             crate::tui::job_control::SuspendContext::new(),
             #[cfg(unix)]
@@ -522,6 +595,29 @@ mod tests {
         }
 
         assert!(saw_recovery, "expected leaked input recovery event");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn recovery_side_channel_works_while_input_broker_is_paused() {
+        let (broker, _handle, _draw_tx, draw_rx, terminal_focused) = setup();
+        broker.pause_events();
+        let (recovery_tx, recovery_rx) = mpsc::unbounded_channel();
+        let mut stream =
+            make_stream_with_recovery_events(broker, draw_rx, terminal_focused, recovery_rx);
+
+        recovery_tx
+            .send(crate::tui::InputRecoverySource::Shortcut)
+            .expect("send recovery event");
+
+        let event = timeout(Duration::from_millis(100), stream.next())
+            .await
+            .expect("timed out waiting for recovery event");
+        assert!(matches!(
+            event,
+            Some(TuiEvent::InputRecovery(
+                crate::tui::InputRecoverySource::Shortcut
+            ))
+        ));
     }
 
     #[tokio::test(flavor = "current_thread")]
