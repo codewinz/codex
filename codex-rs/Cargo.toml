@@ -509,6 +509,13 @@ strip = "symbols"
 # See https://github.com/openai/codex/issues/1411 for details.
 codegen-units = 1
 
+[profile.codewinz-deploy]
+inherits = "release"
+lto = false
+codegen-units = 16
+debug = "none"
+strip = "symbols"
+
 [profile.profiling]
 inherits = "release"
 debug = "full"

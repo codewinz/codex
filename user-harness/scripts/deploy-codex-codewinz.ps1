@@ -1,6 +1,9 @@
 param(
-  [Parameter(Mandatory = $true)]
+  [Parameter(Mandatory = $true, ParameterSetName = 'Source')]
   [string] $SourceExe,
+
+  [Parameter(Mandatory = $true, ParameterSetName = 'Build')]
+  [switch] $Build,
 
   [string] $BaseVersion,
 
@@ -47,6 +50,27 @@ function Assert-ValidBaseVersion([string] $Version) {
   }
 }
 
+function Invoke-CodewinzBuild {
+  $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+  $codexRsRoot = Join-Path $repoRoot 'codex-rs'
+  if (-not (Test-Path -LiteralPath (Join-Path $codexRsRoot 'Cargo.toml') -PathType Leaf)) {
+    throw "Could not locate codex-rs Cargo.toml under: $codexRsRoot"
+  }
+
+  Push-Location $codexRsRoot
+  try {
+    cargo build --locked -p codex-cli --bin codex --profile codewinz-deploy
+    if ($LASTEXITCODE -ne 0) {
+      throw "Codewinz deploy build failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
+  }
+
+  $builtExe = Join-Path $codexRsRoot 'target\codewinz-deploy\codex.exe'
+  Resolve-RequiredFile $builtExe
+}
+
 function Get-NextBuildNumber([string] $InstallDirectory, [string] $Version) {
   if (-not (Test-Path -LiteralPath $InstallDirectory -PathType Container)) {
     return 1
@@ -86,7 +110,11 @@ function Remove-ExistingLink([string] $Path, [switch] $AllowForce) {
   Remove-Item -LiteralPath $Path -Force
 }
 
-$sourcePath = Resolve-RequiredFile $SourceExe
+$sourcePath = if ($Build) {
+  Invoke-CodewinzBuild
+} else {
+  Resolve-RequiredFile $SourceExe
+}
 $installDirectory = $InstallBin
 $base = Get-BaseVersion $sourcePath $BaseVersion
 Assert-ValidBaseVersion $base

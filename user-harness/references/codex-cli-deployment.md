@@ -12,6 +12,24 @@ C:\Users\codewinz\AppData\Local\Programs\OpenAI\Codex\bin
 
 The deploy script defaults to the equivalent `$env:LOCALAPPDATA\Programs\OpenAI\Codex\bin` path.
 
+## Fast Local Build
+
+For repeated local Codewinz deployments, use the dedicated Cargo profile:
+
+```powershell
+cargo build --locked -p codex-cli --bin codex --profile codewinz-deploy
+```
+
+The deploy script can build and deploy in one step:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File user-harness\scripts\deploy-codex-codewinz.ps1 -Build
+```
+
+The `codewinz-deploy` profile is faster than the official release profile because it disables
+fat LTO and allows more codegen units. Use the official `release` or Bazel release path when
+maximum optimization or multiplatform release artifacts are required.
+
 ## File Naming
 
 Each deployment must create a new versioned executable:

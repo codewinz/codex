@@ -77,6 +77,8 @@ foreach ($requiredToken in @('<git-common-dir>/agent-context/', 'sanitized track
 $deployment = Read-HarnessFile 'references/codex-cli-deployment.md'
 foreach ($requiredToken in @(
   'C:\Users\codewinz\AppData\Local\Programs\OpenAI\Codex\bin',
+  'codewinz-deploy',
+  'deploy-codex-codewinz.ps1 -Build',
   'codex-codewinz-{baseVersion}+build.{N}.exe',
   'codex-codewinz.exe',
   'build number',
@@ -90,8 +92,11 @@ foreach ($requiredToken in @(
 $deployScript = Read-HarnessFile 'scripts/deploy-codex-codewinz.ps1'
 foreach ($requiredToken in @(
   'SourceExe',
+  'Build',
   'BaseVersion',
   'InstallBin',
+  'cargo build --locked -p codex-cli --bin codex --profile codewinz-deploy',
+  'target\codewinz-deploy\codex.exe',
   'codex-codewinz-$base+build.$buildNumber.exe',
   'Get-NextBuildNumber',
   'New-Item -ItemType SymbolicLink'
