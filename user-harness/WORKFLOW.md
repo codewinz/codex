@@ -27,3 +27,5 @@
 - Summaries should focus on outcome, verification, and remaining risk.
 - Report concrete commands and results, not general confidence.
 - In a git repository, create a focused commit after completing repo-tracked changes unless the user explicitly says not to.
+- Do not wait for a separate commit request after implementation work is complete; commit before the final handoff.
+- Keep pre-existing or unrelated dirty worktree changes unstaged and out of that commit.
