@@ -117,6 +117,9 @@ pub(crate) async fn run_external_agent_config_migration_prompt(
         if let Some(event) = events.next().await {
             match event {
                 TuiEvent::Key(key_event) => screen.handle_key(key_event),
+                TuiEvent::InputRecovery(_) => {
+                    let _ = tui.recover_input_system();
+                }
                 TuiEvent::Paste(_) => {}
                 TuiEvent::Draw | TuiEvent::Resize => {
                     let _ = tui.draw(u16::MAX, |frame| {

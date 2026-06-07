@@ -1738,12 +1738,9 @@ impl ChatWidget {
         self.refresh_plan_mode_nudge();
     }
 
-    pub(crate) fn strip_terminal_input_leakage(&mut self) -> bool {
-        let stripped = self.bottom_pane.strip_terminal_input_leakage();
-        if stripped {
-            self.refresh_plan_mode_nudge();
-        }
-        stripped
+    pub(crate) fn reset_input_for_recovery(&mut self) {
+        self.bottom_pane.reset_input_for_recovery();
+        self.refresh_plan_mode_nudge();
     }
 
     pub(crate) fn set_remote_image_urls(&mut self, remote_image_urls: Vec<String>) {

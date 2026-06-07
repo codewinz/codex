@@ -61,10 +61,16 @@ use codex_config::types::NotificationMethod;
 mod event_stream;
 mod frame_rate_limiter;
 mod frame_requester;
+mod input_recovery;
+#[cfg(test)]
+#[path = "tui/input_recovery_tests.rs"]
+mod input_recovery_tests;
 #[cfg(unix)]
 mod job_control;
 mod keyboard_modes;
 mod terminal_stderr;
+
+pub use self::input_recovery::InputRecoverySource;
 
 /// Target frame interval for UI redraw scheduling.
 pub(crate) const TARGET_FRAME_INTERVAL: Duration = frame_rate_limiter::MIN_FRAME_INTERVAL;
@@ -517,6 +523,8 @@ fn set_panic_hook() {
 pub enum TuiEvent {
     /// A terminal key event after focus, paste, and protocol bookkeeping has been handled.
     Key(KeyEvent),
+    /// The terminal input stream appears to be leaking CSI/VT key fragments and should be reset.
+    InputRecovery(InputRecoverySource),
     /// A bracketed paste payload normalized by the app layer before it reaches the composer.
     Paste(String),
     /// A terminal size notification that should be handled as resize-sensitive draw work.
@@ -642,6 +650,14 @@ impl Tui {
     // Inverse of `pause_events`.
     pub fn resume_events(&mut self) {
         self.event_broker.resume_events();
+    }
+
+    pub(crate) fn recover_input_system(&mut self) -> Result<()> {
+        self.pause_events();
+        let result = reset_modes_for_recovery();
+        self.resume_events();
+        self.frame_requester.schedule_frame();
+        result
     }
 
     /// Temporarily restore terminal state to run an external interactive program `f`.

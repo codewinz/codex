@@ -505,7 +505,6 @@ pub(crate) struct App {
 
     pub(crate) enhanced_keys_supported: bool,
     pub(crate) keymap: RuntimeKeymap,
-    terminal_recovery_detector: input::TerminalRecoveryDetector,
 
     /// Controls the animation thread that sends CommitTick events.
     pub(crate) commit_anim_running: Arc<AtomicBool>,
@@ -1002,7 +1001,6 @@ See the Codex keymap documentation for supported actions and examples."
             file_search,
             enhanced_keys_supported,
             keymap: runtime_keymap,
-            terminal_recovery_detector: input::TerminalRecoveryDetector::default(),
             transcript_cells: Vec::new(),
             overlay: None,
             deferred_history_lines: Vec::new(),
@@ -1241,6 +1239,11 @@ See the Codex keymap documentation for supported actions and examples."
             }
         }
 
+        if let TuiEvent::InputRecovery(source) = &event {
+            self.recover_terminal_input(tui, *source);
+            return Ok(AppRunControl::Continue);
+        }
+
         if self.overlay.is_some() {
             let _ = self.handle_backtrack_overlay_event(tui, event).await?;
         } else {
@@ -1256,6 +1259,7 @@ See the Codex keymap documentation for supported actions and examples."
                     let pasted = pasted.replace("\r", "\n");
                     self.chat_widget.handle_paste(pasted);
                 }
+                TuiEvent::InputRecovery(_) => unreachable!("handled before overlay routing"),
                 TuiEvent::Draw | TuiEvent::Resize => {
                     if self.backtrack_render_pending {
                         self.rebuild_transcript_after_backtrack(tui)?;

@@ -797,6 +797,10 @@ impl TranscriptOverlay {
                 })?;
                 Ok(())
             }
+            TuiEvent::InputRecovery(_) => {
+                let _ = tui.recover_input_system();
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -898,6 +902,10 @@ impl StaticOverlay {
                 tui.draw(u16::MAX, |frame| {
                     self.render(frame.area(), frame.buffer);
                 })?;
+                Ok(())
+            }
+            TuiEvent::InputRecovery(_) => {
+                let _ = tui.recover_input_system();
                 Ok(())
             }
             _ => Ok(()),

@@ -148,6 +148,9 @@ async fn run_startup_hooks_review_app(
                     }
                 }
             }
+            TuiEvent::InputRecovery(_) => {
+                let _ = tui.recover_input_system();
+            }
             TuiEvent::Paste(_) => {}
             TuiEvent::Draw | TuiEvent::Resize => draw_view(tui, &view)?,
         }

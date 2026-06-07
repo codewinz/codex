@@ -34,6 +34,7 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
 use super::TuiEvent;
+use super::input_recovery::TerminalInputRecoveryDetector;
 
 /// Result type produced by an event source.
 pub type EventResult = std::io::Result<Event>;
@@ -141,6 +142,7 @@ pub struct TuiEventStream<S: EventSource + Default + Unpin = CrosstermEventSourc
     draw_stream: BroadcastStream<()>,
     resume_stream: WatchStream<()>,
     terminal_focused: Arc<AtomicBool>,
+    input_recovery_detector: TerminalInputRecoveryDetector,
     poll_draw_first: bool,
     #[cfg(unix)]
     suspend_context: crate::tui::job_control::SuspendContext,
@@ -162,6 +164,7 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
             draw_stream: BroadcastStream::new(draw_rx),
             resume_stream,
             terminal_focused,
+            input_recovery_detector: TerminalInputRecoveryDetector::default(),
             poll_draw_first: false,
             #[cfg(unix)]
             suspend_context,
@@ -241,6 +244,9 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
                 if crate::tui::job_control::SUSPEND_KEY.is_press(key_event) {
                     let _ = self.suspend_context.suspend(&self.alt_screen_active);
                     return Some(TuiEvent::Draw);
+                }
+                if let Some(source) = self.input_recovery_detector.observe_key(key_event) {
+                    return Some(TuiEvent::InputRecovery(source));
                 }
                 Some(TuiEvent::Key(key_event))
             }
@@ -460,6 +466,53 @@ mod tests {
 
         let next = stream.next().await;
         assert!(matches!(next, Some(TuiEvent::Resize)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn ctrl_alt_r_maps_to_input_recovery() {
+        let (broker, handle, _draw_tx, draw_rx, terminal_focused) = setup();
+        let mut stream = make_stream(broker, draw_rx, terminal_focused);
+
+        handle.send(Ok(Event::Key(KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ))));
+
+        let next = stream.next().await;
+        assert!(matches!(
+            next,
+            Some(TuiEvent::InputRecovery(
+                crate::tui::InputRecoverySource::Shortcut
+            ))
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn repeated_leaked_sequences_map_to_input_recovery() {
+        let (broker, handle, _draw_tx, draw_rx, terminal_focused) = setup();
+        let mut stream = make_stream(broker, draw_rx, terminal_focused);
+
+        for ch in "[3~[3~".chars() {
+            handle.send(Ok(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::NONE,
+            ))));
+        }
+
+        let mut saw_recovery = false;
+        for _ in 0.."[3~[3~".len() {
+            if matches!(
+                stream.next().await,
+                Some(TuiEvent::InputRecovery(
+                    crate::tui::InputRecoverySource::LeakedSequence
+                ))
+            ) {
+                saw_recovery = true;
+                break;
+            }
+        }
+
+        assert!(saw_recovery, "expected leaked input recovery event");
     }
 
     #[tokio::test(flavor = "current_thread")]

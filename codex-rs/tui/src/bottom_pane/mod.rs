@@ -819,17 +819,16 @@ impl BottomPane {
         self.request_redraw();
     }
 
+    pub(crate) fn reset_input_for_recovery(&mut self) {
+        self.view_stack.clear();
+        self.composer.reset_input_for_recovery();
+        self.last_composer_activity_at = None;
+        self.request_redraw();
+    }
+
     /// Get the current composer text (for tests and programmatic checks).
     pub(crate) fn composer_text(&self) -> String {
         self.composer.current_text()
-    }
-
-    pub(crate) fn strip_terminal_input_leakage(&mut self) -> bool {
-        let stripped = self.composer.strip_terminal_input_leakage();
-        if stripped {
-            self.request_redraw();
-        }
-        stripped
     }
 
     pub(crate) fn composer_draft_snapshot(&self) -> chat_composer::ComposerDraftSnapshot {

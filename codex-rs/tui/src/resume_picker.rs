@@ -477,6 +477,9 @@ async fn run_session_picker_with_loader(
                     TuiEvent::Paste(pasted) => {
                         state.handle_paste(pasted);
                     }
+                    TuiEvent::InputRecovery(_) => {
+                        let _ = alt.tui.recover_input_system();
+                    }
                     TuiEvent::Draw | TuiEvent::Resize => {
                         if let Ok(size) = alt.tui.terminal.size() {
                             let list_height =
