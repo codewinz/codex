@@ -777,6 +777,7 @@ async fn load_transcript_preview(
         .thread_read(thread_id, /*include_turns*/ true)
         .await
         .map_err(std::io::Error::other)?;
+    let cwd = thread.cwd.as_path();
     let mut lines = thread
         .turns
         .iter()
@@ -797,7 +798,7 @@ async fn load_transcript_preview(
             }),
             ThreadItem::AgentMessage { text, .. } => Some(TranscriptPreviewLine {
                 speaker: TranscriptPreviewSpeaker::Assistant,
-                text: parse_assistant_markdown(text).visible_markdown,
+                text: parse_assistant_markdown(text, cwd).visible_markdown,
             }),
             _ => None,
         })

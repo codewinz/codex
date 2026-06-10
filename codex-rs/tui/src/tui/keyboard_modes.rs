@@ -4,12 +4,12 @@
 //! process exit gets a stronger reset so the parent shell does not inherit enhanced key
 //! reporting if a terminal misses the normal stack pop.
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 use std::fmt;
 #[cfg(not(windows))]
 use std::io::stdout;
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 use crossterm::Command;
 #[cfg(not(windows))]
 use crossterm::event::KeyboardEnhancementFlags;
@@ -31,7 +31,7 @@ pub(super) fn keyboard_enhancement_disabled() -> bool {
     keyboard_enhancement_disabled_for(disable_env.as_deref(), is_wsl, is_vscode_terminal)
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 fn keyboard_enhancement_disabled_for(
     disable_env: Option<&str>,
     is_wsl: bool,
@@ -47,7 +47,7 @@ fn keyboard_enhancement_disabled_for(
     is_wsl && is_vscode_terminal
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 fn parse_bool_env(value: Option<&str>) -> Option<bool> {
     match value.map(str::trim) {
         Some("1") => Some(true),
@@ -159,7 +159,7 @@ fn running_in_tmux_session() -> bool {
     )
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 fn tmux_session_detected(tmux: Option<&str>, tmux_pane: Option<&str>) -> bool {
     tmux.is_some() || tmux_pane.is_some()
 }
@@ -172,7 +172,7 @@ fn tmux_should_enable_modify_other_keys() -> bool {
     )
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 fn tmux_should_enable_modify_other_keys_for(
     running_in_tmux_session: bool,
     extended_keys_format: Option<&str>,
@@ -231,11 +231,11 @@ pub(super) fn reset_keyboard_reporting_after_exit() {
     );
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ResetKeyboardEnhancementFlags;
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 impl Command for ResetKeyboardEnhancementFlags {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
         f.write_str("\x1b[<u")
@@ -255,11 +255,11 @@ impl Command for ResetKeyboardEnhancementFlags {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EnableModifyOtherKeys;
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 impl Command for EnableModifyOtherKeys {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
         f.write_str("\x1b[>4;2m")
@@ -279,11 +279,11 @@ impl Command for EnableModifyOtherKeys {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DisableModifyOtherKeys;
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 impl Command for DisableModifyOtherKeys {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
         f.write_str("\x1b[>4;0m")
@@ -305,34 +305,23 @@ impl Command for DisableModifyOtherKeys {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(windows))]
     use super::DisableModifyOtherKeys;
-    #[cfg(not(windows))]
     use super::EnableModifyOtherKeys;
-    #[cfg(not(windows))]
     use super::ResetKeyboardEnhancementFlags;
-    #[cfg(not(windows))]
     use super::keyboard_enhancement_disabled_for;
-    #[cfg(not(windows))]
     use super::parse_bool_env;
-    #[cfg(not(windows))]
     use super::tmux_session_detected;
-    #[cfg(not(windows))]
     use super::tmux_should_enable_modify_other_keys_for;
     use super::vscode_terminal_detected;
-    #[cfg(not(windows))]
     use crossterm::Command;
-    #[cfg(not(windows))]
     use pretty_assertions::assert_eq;
 
-    #[cfg(not(windows))]
     fn ansi_for(command: impl Command) -> String {
         let mut out = String::new();
         command.write_ansi(&mut out).unwrap();
         out
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn keyboard_enhancement_env_flag_parses_common_values() {
         assert_eq!(parse_bool_env(Some("1")), Some(true));
@@ -345,7 +334,6 @@ mod tests {
         assert_eq!(parse_bool_env(/*value*/ None), None);
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn keyboard_enhancement_auto_disables_for_vscode_in_wsl() {
         assert!(keyboard_enhancement_disabled_for(
@@ -353,7 +341,6 @@ mod tests {
         ));
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn keyboard_enhancement_auto_disable_requires_wsl_and_vscode() {
         assert!(!keyboard_enhancement_disabled_for(
@@ -364,7 +351,6 @@ mod tests {
         ));
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn keyboard_enhancement_env_flag_overrides_auto_detection() {
         assert!(!keyboard_enhancement_disabled_for(
@@ -398,7 +384,6 @@ mod tests {
         ));
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn tmux_session_detection_accepts_tmux_or_tmux_pane() {
         assert!(tmux_session_detected(
@@ -411,7 +396,6 @@ mod tests {
         ));
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn tmux_modify_other_keys_only_requests_confirmed_csi_u_format() {
         assert!(tmux_should_enable_modify_other_keys_for(
@@ -435,19 +419,16 @@ mod tests {
         ));
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn reset_keyboard_enhancement_flags_clears_all_pushed_levels() {
         assert_eq!(ansi_for(ResetKeyboardEnhancementFlags), "\x1b[<u");
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn enable_modify_other_keys_requests_xterm_keyboard_reporting() {
         assert_eq!(ansi_for(EnableModifyOtherKeys), "\x1b[>4;2m");
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn disable_modify_other_keys_resets_xterm_keyboard_reporting() {
         assert_eq!(ansi_for(DisableModifyOtherKeys), "\x1b[>4;0m");
