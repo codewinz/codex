@@ -11,52 +11,7 @@ use codex_config::types::WindowsSandboxModeToml;
 
 const SHUTDOWN_FIRST_EXIT_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 2);
 
-pub(super) enum ProposedPlanConsolidation {
-    Replaced {
-        start: usize,
-        end: usize,
-        consolidated: Arc<dyn HistoryCell>,
-    },
-    Inserted {
-        consolidated: Arc<dyn HistoryCell>,
-    },
-}
-
-impl ProposedPlanConsolidation {
-    #[cfg(test)]
-    pub(super) fn replaced_range(&self) -> Option<std::ops::Range<usize>> {
-        match self {
-            Self::Replaced { start, end, .. } => Some(*start..*end),
-            Self::Inserted { .. } => None,
-        }
-    }
-}
-
 impl App {
-    pub(super) fn consolidate_trailing_proposed_plan_stream_cells(
-        &mut self,
-        source: String,
-    ) -> ProposedPlanConsolidation {
-        let end = self.transcript_cells.len();
-        let start =
-            trailing_run_start::<history_cell::ProposedPlanStreamCell>(&self.transcript_cells);
-        let consolidated: Arc<dyn HistoryCell> =
-            Arc::new(history_cell::new_proposed_plan(source, &self.config.cwd));
-
-        if start < end {
-            self.transcript_cells
-                .splice(start..end, std::iter::once(consolidated.clone()));
-            ProposedPlanConsolidation::Replaced {
-                start,
-                end,
-                consolidated,
-            }
-        } else {
-            self.transcript_cells.push(consolidated.clone());
-            ProposedPlanConsolidation::Inserted { consolidated }
-        }
-    }
-
     pub(super) async fn handle_event(
         &mut self,
         tui: &mut tui::Tui,
@@ -249,20 +204,19 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
                 self.transcript_cells.push(cell.clone());
-                let terminal_size = tui
-                    .terminal
-                    .size()
-                    .unwrap_or(tui.terminal.last_known_screen_size);
                 if self.initial_history_replay_buffer.as_ref().is_some() {
                     self.insert_history_cell_lines_with_initial_replay_buffer(
+                        tui,
                         cell.as_ref(),
-                        terminal_size,
+                        self.chat_widget
+                            .history_wrap_width(tui.terminal.last_known_screen_size.width),
                     );
                 } else {
                     self.insert_history_cell_lines(
                         tui,
                         cell.as_ref(),
-                        self.chat_widget.history_wrap_width(terminal_size.width),
+                        self.chat_widget
+                            .history_wrap_width(tui.terminal.last_known_screen_size.width),
                     );
                 }
             }
@@ -288,34 +242,37 @@ impl App {
                     self.transcript_reflow.clear();
                     return Ok(AppRunControl::Continue);
                 }
+                let end = self.transcript_cells.len();
+                let start = trailing_run_start::<history_cell::ProposedPlanStreamCell>(
+                    &self.transcript_cells,
+                );
+                let consolidated: Arc<dyn HistoryCell> =
+                    Arc::new(history_cell::new_proposed_plan(source, &self.config.cwd));
 
-                match self.consolidate_trailing_proposed_plan_stream_cells(source) {
-                    ProposedPlanConsolidation::Replaced {
-                        start,
-                        end,
-                        consolidated,
-                    } => {
-                        if let Some(Overlay::Transcript(t)) = &mut self.overlay {
-                            t.consolidate_cells(start..end, consolidated.clone());
-                            tui.frame_requester().schedule_frame();
-                        }
+                if start < end {
+                    self.transcript_cells
+                        .splice(start..end, std::iter::once(consolidated.clone()));
 
-                        self.maybe_finish_stream_reflow(tui)?;
+                    if let Some(Overlay::Transcript(t)) = &mut self.overlay {
+                        t.consolidate_cells(start..end, consolidated.clone());
+                        tui.frame_requester().schedule_frame();
                     }
-                    ProposedPlanConsolidation::Inserted { consolidated } => {
-                        if let Some(Overlay::Transcript(t)) = &mut self.overlay {
-                            t.insert_cell(consolidated.clone());
-                            tui.frame_requester().schedule_frame();
-                        }
-                        self.insert_history_cell_lines(
-                            tui,
-                            consolidated.as_ref(),
-                            self.chat_widget
-                                .history_wrap_width(tui.terminal.last_known_screen_size.width),
-                        );
 
-                        self.maybe_finish_stream_reflow(tui)?;
+                    self.finish_required_stream_reflow(tui)?;
+                } else {
+                    self.transcript_cells.push(consolidated.clone());
+                    if let Some(Overlay::Transcript(t)) = &mut self.overlay {
+                        t.insert_cell(consolidated.clone());
+                        tui.frame_requester().schedule_frame();
                     }
+                    self.insert_history_cell_lines(
+                        tui,
+                        consolidated.as_ref(),
+                        self.chat_widget
+                            .history_wrap_width(tui.terminal.last_known_screen_size.width),
+                    );
+
+                    self.maybe_finish_stream_reflow(tui)?;
                 }
             }
             AppEvent::ApplyThreadRollback { num_turns } => {

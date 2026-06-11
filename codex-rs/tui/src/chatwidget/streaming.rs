@@ -19,12 +19,11 @@ impl ChatWidget {
     pub(super) fn flush_answer_stream_with_separator(&mut self) {
         let had_stream_controller = self.stream_controller.is_some();
         if let Some(mut controller) = self.stream_controller.take() {
-            let scrollback_reflow =
-                if controller.has_emitted_scrollback() && controller.has_unqueued_tail() {
-                    crate::app_event::ConsolidationScrollbackReflow::Required
-                } else {
-                    crate::app_event::ConsolidationScrollbackReflow::IfResizeReflowRan
-                };
+            let scrollback_reflow = if controller.has_live_tail() {
+                crate::app_event::ConsolidationScrollbackReflow::Required
+            } else {
+                crate::app_event::ConsolidationScrollbackReflow::IfResizeReflowRan
+            };
             self.clear_active_stream_tail();
             let (cell, source) = controller.finalize();
             let deferred_history_cell =
@@ -160,7 +159,7 @@ impl ChatWidget {
         self.transcript.saw_plan_item_this_turn = true;
         let (finalized_streamed_cell, consolidated_plan_source) =
             if let Some(mut controller) = self.plan_stream_controller.take() {
-                let had_live_tail = controller.has_unqueued_tail();
+                let had_live_tail = controller.has_live_tail();
                 self.clear_active_stream_tail();
                 let (cell, source) = controller.finalize();
                 if had_live_tail {
@@ -303,12 +302,12 @@ impl ChatWidget {
 
     /// Runs a regular periodic commit tick.
     pub(super) fn run_commit_tick(&mut self) {
-        self.run_commit_tick_with_scope(CommitTickScope::NativeScrollback);
+        self.run_commit_tick_with_scope(CommitTickScope::AnyMode);
     }
 
-    /// Runs an opportunistic commit tick only if backlog is large enough for native scrollback.
+    /// Runs an opportunistic commit tick only if catch-up mode is active.
     pub(super) fn run_catch_up_commit_tick(&mut self) {
-        self.run_commit_tick_with_scope(CommitTickScope::NativeScrollback);
+        self.run_commit_tick_with_scope(CommitTickScope::CatchUpOnly);
     }
 
     /// Runs a commit tick for the current stream queue snapshot.

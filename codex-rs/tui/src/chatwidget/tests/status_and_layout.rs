@@ -298,7 +298,7 @@ async fn flush_answer_stream_keeps_default_reflow_for_plain_text_tail() {
 }
 
 #[tokio::test]
-async fn flush_answer_stream_inserts_final_cell_for_unemitted_live_table_tail() {
+async fn flush_answer_stream_requests_scrollback_reflow_for_live_table_tail() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     let cwd = chat.config.cwd.to_path_buf();
 
@@ -313,70 +313,6 @@ async fn flush_answer_stream_inserts_final_cell_for_unemitted_live_table_tail() 
     assert!(
         controller.has_live_tail(),
         "expected table holdback to leave a live tail for this regression",
-    );
-    chat.stream_controller = Some(controller);
-
-    while rx.try_recv().is_ok() {}
-
-    chat.flush_answer_stream_with_separator();
-
-    let mut saw_consolidate = false;
-    let mut saw_insert_history = false;
-    while let Ok(event) = rx.try_recv() {
-        match event {
-            AppEvent::InsertHistoryCell(_) => saw_insert_history = true,
-            AppEvent::ConsolidateAgentMessage {
-                scrollback_reflow,
-                deferred_history_cell,
-                ..
-            } => {
-                saw_consolidate = true;
-                assert_eq!(
-                    scrollback_reflow,
-                    crate::app_event::ConsolidationScrollbackReflow::IfResizeReflowRan
-                );
-                assert!(
-                    deferred_history_cell.is_none(),
-                    "unemitted live table tail should insert normally at finalization",
-                );
-            }
-            _ => {}
-        }
-    }
-
-    assert!(
-        saw_consolidate,
-        "expected stream finalization to consolidate"
-    );
-    assert!(
-        saw_insert_history,
-        "unemitted live table tail should insert final history without reflow"
-    );
-}
-
-#[tokio::test]
-async fn flush_answer_stream_requests_scrollback_reflow_for_emitted_live_tail() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    let cwd = chat.config.cwd.to_path_buf();
-
-    let mut controller = crate::streaming::controller::StreamController::new(
-        Some(80),
-        cwd.as_path(),
-        HistoryRenderMode::Rich,
-    );
-    assert!(controller.push("intro before table\n"));
-    let (cell, _) = controller.on_commit_tick();
-    chat.add_boxed_history(cell.expect("expected emitted intro cell"));
-    controller.push("| Name | Notes |\n");
-    controller.push("| --- | --- |\n");
-    controller.push("| alpha | tail held until final table render |\n");
-    assert!(
-        controller.has_live_tail(),
-        "expected table holdback to leave a live tail for this regression",
-    );
-    assert!(
-        controller.has_emitted_scrollback(),
-        "test setup should simulate a previously emitted provisional stream cell",
     );
     chat.stream_controller = Some(controller);
 
@@ -401,7 +337,7 @@ async fn flush_answer_stream_requests_scrollback_reflow_for_emitted_live_tail() 
                 );
                 assert!(
                     deferred_history_cell.is_some(),
-                    "emitted live tail should be staged for consolidation",
+                    "live table tail should be staged for consolidation",
                 );
             }
             _ => {}
@@ -414,7 +350,7 @@ async fn flush_answer_stream_requests_scrollback_reflow_for_emitted_live_tail() 
     );
     assert!(
         !saw_insert_history,
-        "emitted live tail should not insert provisional history before reflow"
+        "live table tail should not be inserted before canonical reflow"
     );
 }
 
