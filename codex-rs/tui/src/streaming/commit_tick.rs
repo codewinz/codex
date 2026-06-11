@@ -1,17 +1,9 @@
-//! Orchestrates commit-tick drains across streaming controllers.
+//! Coordinates commit ticks for streaming controllers.
 //!
-//! This module bridges queue-based chunking policy (`chunking`) with the concrete stream
-//! controllers (`controller`). Callers provide the current controllers and tick scope; the module
-//! computes queue pressure, selects a drain plan, applies it, and returns emitted history cells.
-//!
-//! The module preserves ordering by draining only from controller queue heads. It does not schedule
-//! ticks and it does not mutate UI state directly; callers remain responsible for animation events
-//! and history insertion side effects.
-//!
-//! The main flow is:
-//! [`run_commit_tick`] -> [`stream_queue_snapshot`] -> [`QueueSnapshot`] ->
-//! [`resolve_chunking_plan`] -> [`ChunkingDecision`]/[`DrainPlan`] ->
-//! [`apply_commit_tick_plan`] -> [`CommitTickOutput`].
+//! Native terminal scrollback cannot be mutated safely while a stream is active: users may be
+//! reading older output, and terminals do not expose whether the viewport is scrolled back. Commit
+//! ticks therefore keep queued stream lines in the active tail and leave history insertion to stream
+//! finalization.
 
 use std::time::Duration;
 use std::time::Instant;
@@ -20,18 +12,19 @@ use crate::history_cell::HistoryCell;
 
 use super::chunking::AdaptiveChunkingPolicy;
 use super::chunking::ChunkingDecision;
-use super::chunking::ChunkingMode;
 use super::chunking::DrainPlan;
 use super::chunking::QueueSnapshot;
-use super::chunking::should_catch_up_native_scrollback;
 use super::controller::PlanStreamController;
 use super::controller::StreamController;
 
-/// Describes whether a commit tick may run in all modes or only in catch-up mode.
+/// Describes where a commit tick is allowed to write stream output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CommitTickScope {
-    /// Keep native terminal scrollback stable by draining only severe queued backlog.
+    /// Keep native terminal scrollback stable by deferring all queued output until finalization.
     NativeScrollback,
+    /// Allow queued stream lines to be moved into history during active streaming.
+    #[allow(dead_code)]
+    HistoryMutation,
 }
 
 /// Describes what a single commit tick produced.
@@ -60,11 +53,8 @@ impl Default for CommitTickOutput {
 
 /// Runs one commit tick against the provided stream controllers.
 ///
-/// This function collects a [`QueueSnapshot`], asks [`AdaptiveChunkingPolicy`] for a
-/// [`ChunkingDecision`], and then applies the resulting [`DrainPlan`] to both controllers.
-/// If callers pass stale controller references (for example, references not tied to the
-/// current turn), queue age can be misread and the policy may stay in catch-up longer
-/// than expected.
+/// For native terminal scrollback, this intentionally emits no history cells. The active tail
+/// remains responsible for showing queued lines while streaming is in progress.
 pub(crate) fn run_commit_tick(
     policy: &mut AdaptiveChunkingPolicy,
     stream_controller: Option<&mut StreamController>,
@@ -79,10 +69,7 @@ pub(crate) fn run_commit_tick(
     );
     let decision = resolve_chunking_plan(policy, snapshot, now);
     match scope {
-        CommitTickScope::NativeScrollback
-            if !should_catch_up_native_scrollback(snapshot)
-                || decision.mode != ChunkingMode::CatchUp =>
-        {
+        CommitTickScope::NativeScrollback => {
             let has_controller = stream_controller.is_some() || plan_stream_controller.is_some();
             return CommitTickOutput {
                 cells: Vec::new(),
@@ -90,7 +77,7 @@ pub(crate) fn run_commit_tick(
                 all_idle: !has_controller,
             };
         }
-        CommitTickScope::NativeScrollback => {}
+        CommitTickScope::HistoryMutation => {}
     }
 
     apply_commit_tick_plan(
@@ -255,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn native_scrollback_scope_allows_severe_catch_up() {
+    fn native_scrollback_scope_defers_severe_backlog() {
         let mut policy = AdaptiveChunkingPolicy::default();
         let mut controller = stream_controller();
         let mut source = String::new();
@@ -273,10 +260,10 @@ mod tests {
         );
 
         assert!(
-            !output.cells.is_empty(),
-            "severe backlog should still catch up"
+            output.cells.is_empty(),
+            "severe backlog should not mutate native scrollback"
         );
-        assert_eq!(controller.queued_lines(), 0);
-        assert!(output.all_idle);
+        assert_eq!(controller.queued_lines(), 64);
+        assert!(!output.all_idle);
     }
 }

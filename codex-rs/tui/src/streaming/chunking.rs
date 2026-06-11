@@ -293,15 +293,6 @@ fn is_severe_backlog(snapshot: QueueSnapshot) -> bool {
             .is_some_and(|oldest| oldest >= SEVERE_OLDEST_AGE)
 }
 
-/// Returns whether queued output is large enough to mutate native terminal scrollback.
-///
-/// Native scrollback readers cannot be detected reliably, so this deliberately ignores queue age:
-/// a small queue should stay in the active tail until finalization instead of periodically moving
-/// the user's terminal scrollback while they may be reading older output.
-pub(crate) fn should_catch_up_native_scrollback(snapshot: QueueSnapshot) -> bool {
-    snapshot.queued_lines >= SEVERE_QUEUE_DEPTH_LINES
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

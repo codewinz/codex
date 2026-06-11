@@ -224,6 +224,11 @@ impl StreamCore {
         self.enqueued_stable_len < self.rendered_lines.len()
     }
 
+    #[inline]
+    fn has_emitted_scrollback(&self) -> bool {
+        self.emitted_stable_len > 0
+    }
+
     /// Update rendering width and rebuild queued stable lines for the new layout.
     ///
     /// Re-renders once at the new width and rebuilds queue state from the
@@ -544,6 +549,11 @@ impl StreamController {
     #[inline]
     pub(crate) fn has_unqueued_tail(&self) -> bool {
         self.core.has_unqueued_tail()
+    }
+
+    #[inline]
+    pub(crate) fn has_emitted_scrollback(&self) -> bool {
+        self.core.has_emitted_scrollback()
     }
 
     pub(crate) fn clear_queue(&mut self) {
@@ -900,6 +910,23 @@ mod tests {
             ctrl.current_tail_lines().is_empty(),
             "emitted lines should leave the active tail"
         );
+    }
+
+    #[test]
+    fn controller_tail_includes_severe_queued_unemitted_backlog() {
+        let mut ctrl = stream_controller(Some(80));
+        let source = (0..64)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>();
+        assert!(ctrl.push(&source));
+        assert_eq!(ctrl.queued_lines(), 64);
+        assert_eq!(ctrl.core.emitted_stable_len, 0);
+        assert!(!ctrl.has_emitted_scrollback());
+
+        let tail = hyperlink_lines_to_plain_strings(&ctrl.current_tail_lines());
+        assert_eq!(tail.len(), 64);
+        assert!(tail.iter().any(|line| line.contains("line 0")));
+        assert!(tail.iter().any(|line| line.contains("line 63")));
     }
 
     #[test]

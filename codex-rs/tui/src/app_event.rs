@@ -595,8 +595,8 @@ pub(crate) enum AppEvent {
     /// finalization. The `App` handler walks backward through `transcript_cells`
     /// to find the `AgentMessageCell` run and splices in the consolidated cell.
     /// The `cwd` keeps local file-link display stable across the final re-render.
-    /// `scrollback_reflow` lets table-tail finalization force the already-emitted
-    /// terminal scrollback to be rebuilt from the consolidated source-backed cell.
+    /// `scrollback_reflow` lets finalization repair terminal scrollback when
+    /// provisional stream cells were already emitted before the final tail was known.
     /// `deferred_history_cell` lets callers add the final stream tail to the
     /// transcript without first writing its provisional render to scrollback.
     ConsolidateAgentMessage {

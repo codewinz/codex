@@ -19,11 +19,12 @@ impl ChatWidget {
     pub(super) fn flush_answer_stream_with_separator(&mut self) {
         let had_stream_controller = self.stream_controller.is_some();
         if let Some(mut controller) = self.stream_controller.take() {
-            let scrollback_reflow = if controller.has_unqueued_tail() {
-                crate::app_event::ConsolidationScrollbackReflow::Required
-            } else {
-                crate::app_event::ConsolidationScrollbackReflow::IfResizeReflowRan
-            };
+            let scrollback_reflow =
+                if controller.has_emitted_scrollback() && controller.has_unqueued_tail() {
+                    crate::app_event::ConsolidationScrollbackReflow::Required
+                } else {
+                    crate::app_event::ConsolidationScrollbackReflow::IfResizeReflowRan
+                };
             self.clear_active_stream_tail();
             let (cell, source) = controller.finalize();
             let deferred_history_cell =
