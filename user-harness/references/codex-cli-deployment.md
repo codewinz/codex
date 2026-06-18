@@ -30,6 +30,23 @@ The `codewinz-deploy` profile is faster than the official release profile becaus
 fat LTO and allows more codegen units. Use the official `release` or Bazel release path when
 maximum optimization or multiplatform release artifacts are required.
 
+## Verification Scope
+
+For local release-tag merge and `codex-codewinz` deployment work, keep verification targeted.
+Do not build test-only helper/debug binaries unless the user explicitly asks for that deeper
+test pass.
+
+In particular, skip this kind of helper build during normal deploy flow:
+
+```powershell
+cargo build --locked -p codex-cli --bin codex -p codex-rmcp-client --bin test_stdio_server --bin test_streamable_http_server -p codex-windows-sandbox --bin codex-windows-sandbox-setup --bin codex-command-runner
+```
+
+Those binaries are useful only for broader `codex-core` integration-test coverage and can create
+large `target\debug` artifacts. Prefer focused checks such as formatting, targeted package tests,
+Bazel lock checks when dependencies change, `cargo check --locked -p codex-cli --bin codex`, and
+the final deployed executable `--version` check.
+
 ## File Naming
 
 Each deployment must create a new versioned executable:

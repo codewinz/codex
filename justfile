@@ -30,7 +30,8 @@ file-search *args:
 app-server-test-client *args:
     cargo build -p codex-cli
     cargo run -p codex-app-server-test-client -- --codex-bin ./target/debug/codex {args}
-# Format the justfile, Rust, Python SDK code, and Python scripts.
+
+# Format the justfile, Rust, Bazel/Starlark, Python SDK code, and Python scripts.
 fmt:
     {{ python }} ../scripts/format.py
 # Check formatting without modifying files.
@@ -64,11 +65,9 @@ install:
 [unix]
 test *args:
     RUST_MIN_STACK={{ rust_min_stack }} NEXTEST_PROFILE=local cargo nextest run --no-fail-fast "$@"
-
 [windows]
 test *args:
     $env:RUST_MIN_STACK = "{{ rust_min_stack }}"; $env:NEXTEST_PROFILE = "local"; cargo nextest run --no-fail-fast @($args | Select-Object -Skip 1)
-
 # Run from the repository root so scripts that resolve paths from `cwd` see
 # the same layout they use in GitHub Actions.
 [no-cd]
