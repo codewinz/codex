@@ -81,6 +81,8 @@ mod windows_recovery_hotkey;
 mod windows_recovery_hotkey_tests;
 
 pub use self::input_recovery::InputRecoverySource;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 /// Target frame interval for UI redraw scheduling.
 pub(crate) const TARGET_FRAME_INTERVAL: Duration = frame_rate_limiter::MIN_FRAME_INTERVAL;
