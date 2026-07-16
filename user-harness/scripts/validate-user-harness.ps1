@@ -11,11 +11,9 @@ $requiredPaths = @(
   'PREFERENCES.md',
   'RELIABILITY.md',
   'PLANS.md',
-  'MULTI_AGENT.md',
   'references',
   'references/testing.md',
   'references/sentry-tdd.md',
-  'references/shared-worktree-context.md',
   'references/codex-cli-deployment.md',
   'scripts/deploy-codex-codewinz.ps1',
   'templates',
@@ -47,7 +45,6 @@ foreach ($requiredLink in @(
   'PREFERENCES.md',
   'RELIABILITY.md',
   'PLANS.md',
-  'MULTI_AGENT.md',
   'references/',
   'templates/'
 )) {
@@ -56,21 +53,18 @@ foreach ($requiredLink in @(
   }
 }
 
-if ($index -notmatch 'When project docs conflict with this harness') {
-  throw 'INDEX.md is missing the project-doc precedence note.'
+if ($index -notmatch 'Project-specific guidance overrides this global harness') {
+  throw 'INDEX.md is missing the project-specific override note.'
 }
 
-$multiAgent = Read-HarnessFile 'MULTI_AGENT.md'
-foreach ($requiredToken in @('explorer', 'worker', 'reviewer', 'read-only', 'coordinator')) {
-  if ($multiAgent -notmatch [regex]::Escape($requiredToken)) {
-    throw "MULTI_AGENT.md is missing expected content: $requiredToken"
-  }
-}
-
-$sharedContext = Read-HarnessFile 'references/shared-worktree-context.md'
-foreach ($requiredToken in @('<git-common-dir>/agent-context/', 'sanitized tracked exports', 'Never store secrets')) {
-  if ($sharedContext -notmatch [regex]::Escape($requiredToken)) {
-    throw "shared-worktree-context.md is missing expected content: $requiredToken"
+$removedAgentPolicyPaths = @(
+  'MULTI_AGENT.md',
+  'references/shared-worktree-context.md'
+)
+foreach ($relativePath in $removedAgentPolicyPaths) {
+  $path = Join-Path $Root $relativePath
+  if (Test-Path -LiteralPath $path) {
+    throw "Removed sub-agent policy still exists: $relativePath"
   }
 }
 
@@ -117,6 +111,13 @@ $repoSpecificPatterns = @(
   'broker credential',
   'trading software'
 )
+$removedAgentPolicyPatterns = @(
+  'MULTI_AGENT.md',
+  'multi-agent delegation guidance',
+  '## Delegation policy',
+  '<git-common-dir>/agent-context/',
+  'assigned agent log'
+)
 
 foreach ($file in $markdownFiles) {
   $content = Get-Content -LiteralPath $file.FullName -Raw
@@ -124,6 +125,12 @@ foreach ($file in $markdownFiles) {
     if ($content -match [regex]::Escape($pattern)) {
       $relativePath = Resolve-Path -LiteralPath $file.FullName -Relative
       throw "Repo-specific Golden Goose content found in $relativePath`: $pattern"
+    }
+  }
+  foreach ($pattern in $removedAgentPolicyPatterns) {
+    if ($content -match [regex]::Escape($pattern)) {
+      $relativePath = Resolve-Path -LiteralPath $file.FullName -Relative
+      throw "Removed sub-agent policy found in $relativePath`: $pattern"
     }
   }
 }
